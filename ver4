@@ -915,6 +915,19 @@ def save_md_pdf(a: str, filename: str) -> str:
         "PDF 생성 실패: Microsoft Edge/Chrome 또는 wkhtmltopdf가 필요합니다. "
         "가능하면 'pip install markdown' 설치도 권장합니다."
     )
+
+def create_new_division(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    'Division' 열의 VD와 DA 항목을 'CE'로 묶고, 나머지는 기존 값을 유지하는
+    'New_Division' 열을 생성합니다.
+    """
+    df['New_Division'] = np.where(
+        (df['Division'] == 'VD') | (df['Division'] == 'DA'), # 조건: Division이 VD이거나 DA인 경우
+        'CE', # 조건 충족 시 할당할 값
+        df['Division'] # 조건 불충족 시(MX) 할당할 값
+    )
+    return df
+
 # ------------------------------------------------------------
 # File path helper to avoid invalid filenames
 # ------------------------------------------------------------
