@@ -1,42 +1,31 @@
-def main():
-    ensure_dirs()
-
-    df_raw = read_csv_safely(INPUT_CSV)
-    df_raw = normalize_columns(df_raw) # 👈 여기서 컬럼명 매핑이 일어납니다.
-    
-    # ==========================================================
-    # 📢 [테스트 코드 시작] - 2.2 확인용
-    # ==========================================================
-    if df_raw.empty:
-        print("[TEST] 데이터프레임이 비어있어 컬럼 확인을 건너뜝니다.")
-        sys.exit(0) # 테스트 후 종료
-        
-    print("\n" + "="*50)
-    print("📢 2.2 단계: 컬럼명 매핑 테스트 결과 (상위 5개 행)")
-    print("="*50)
-    
-    # 1. 최종 컬럼 목록 확인
-    print("📌 1. 데이터프레임의 최종 컬럼 목록:")
-    print(df_raw.columns.tolist())
-    
-    # 2. 핵심 컬럼의 데이터 확인 (매핑이 잘 되었는지)
-    required_cols = ["Likelihood_to_Recommend", "Response_Date__UTC_", "Subsidiary", "Reason_for_Score"]
-    
-    missing_cols = [c for c in required_cols if c not in df_raw.columns]
-    if missing_cols:
-        print(f"\n❌ [경고] 필수 컬럼 매핑 실패: {missing_cols}가 데이터프레임에 없습니다.")
-    else:
-        print("\n✅ [확인] 필수 컬럼들이 모두 존재합니다.")
-        print("\n📌 2. 매핑된 핵심 컬럼의 데이터 상위 5개:")
-        
-        # 'Likelihood_to_Recommend'가 숫자로 잘 변환되었는지도 확인합니다.
-        print(df_raw[required_cols].head())
-
-    print("\n" + "="*50 + "\n")
-    # sys.exit(0) # 👈 이 줄의 주석을 풀면, 이 테스트 후 프로그램이 종료됩니다.
-    # ==========================================================
-    # 📢 [테스트 코드 종료]
-    # ==========================================================
-    
-    df_raw = coerce_types(df_raw)
-    # ... (나머지 원래 코드)
+PS C:\Users\donguk.koo\Desktop\aaaRNPS> & C:/Users/donguk.koo/Desktop/aaaRNPS/.venv/Scripts/python.exe c:/Users/donguk.koo/Desktop/aaaRNPS/ver4.py
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:331: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+  merged = pd.concat([add_type(all_pivot, "All"),
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:437: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  merged[num_cols] = merged[num_cols].applymap(lambda v: np_round(v) if (isinstance(v, (int, float, np.floating)) or pd.notna(v)) else v)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+c:\Users\donguk.koo\Desktop\aaaRNPS\ver4.py:493: FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
+  g[num_cols] = g[num_cols].applymap(np_round)
+<Response [200]>
+<Response [200]>
+<Response [200]>
+<Response [200]>
+<Response [200]>
+<Response [200]>
+<Response [429]>
+[WARN] Unexpected error: 'content'
