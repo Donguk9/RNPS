@@ -1,0 +1,1030 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Builds NPS summary Excel and Markdown reports from nps.csv
+
+‼️ 업데이트 사항 (API 안정성 강화 및 Pandas 최신화):
+- API 호출(gauss 함수들)에 재시도 로직(Retry) 추가: 429 에러 발생 시 대기 후 재시도.
+- Pandas FutureWarnings 해결: applymap -> map, concat 시 빈 DF 필터링.
+- 법인별 루프 돌 때 과부하 방지를 위한 1초 대기 추가.
+
+Input file expected: ./nps.csv
+
+Outputs (created under ./out):
+- out/nps_report.xlsx
+- out/global_report.md
+- out/subsidiary_reports/{Subsidiary}.md
+- out/plots/... (png charts)
+"""
+from __future__ import annotations
+from gauss import * # gauss 모듈이 같은 폴더에 있어야 합니다.
+import os
+import re
+import sys
+import math
+import json
+import textwrap
+import itertools
+import random
+import hashlib
+import time  # 시간 대기를 위해 추가
+from dataclasses import dataclass
+from typing import List, Dict, Tuple, Optional, Callable, Any
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg') # headless
+import matplotlib.pyplot as plt
+import xlsxwriter
+import markdown
+import requests as requests
+
+# Proxy settings for corporate network
+os.environ['HTTP_PROXY'] = 'http://proxy.samsung.com:8080'
+os.environ['HTTPS_PROXY'] = 'http://proxy.samsung.com:8080'
+os.environ['NO_PROXY'] = 'localhost,127.0.0.1,.samsung.com,.sec.samsung.net'
+
+ENDPOINT_URL = "https://genai-openapi.sec.samsung.net/dxhq/trial/api-chat"
+YOUR_CLIENT_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjbGllbnRJZCI6ImYyMzgxOTcxLTdlOTgtNGQzOS05MjdiLTc1OGI3NTc4YTFiMC0yMDIiLCJjbGllbnRTZWNyZXQiOiJBY1hEM09SSWpHVTdGY3RwWlRpRWFROGQ5Z0c2UnhBSiIsImV4cCI6MTc3MjQ2MzU5OX0.N2ZnojnNr8wbXD-GNCLcVf-NS8ZwioRxNWW7LqhpuIo"
+YOUR_PASS_KEY = "Bearer eyJ4NXQiOiJNV0l5TkRJNVlqRTJaV1kxT0RNd01XSTNOR1ptTVRZeU5UTTJOVFZoWlRnMU5UTTNaVE5oTldKbVpERTFPVEE0TldFMVlUaGxNak5sTldFellqSXlZUSIsImtpZCI6Ik1XSXlOREk1WWpFMlpXWTFPRE13TVdJM05HWm1NVFl5TlRNMk5UVmhaVGcxTlRNM1pUTmhOV0ptWkRFMU9UQTROV0UxWVRobE1qTmxOV0V6WWpJeVlRX1JTMjU2IiwidHlwIjoiYXQrand0IiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJmMTJkMWRiYS1lOWM0LTQ3MzktOGRmNy03Y2IxZjM1MTIxZGEiLCJhdXQiOiJBUFBMSUNBVElPTiIsImF1ZCI6IjRabl95dGQzOXY4Zl9kUUQ3YkFCRUhzVjliTWEiLCJuYmYiOjE3NTU2NjU0MDksImF6cCI6IjRabl95dGQzOXY4Zl9kUUQ3YkFCRUhzVjliTWEiLCJzY29wZSI6ImRlZmF1bHQiLCJpc3MiOiJodHRwczpcL1wvaW5ub3ZhdGlvbi13c28yLnNlYy5zYW1zdW5nLm5ldDo0NDNcL29hdXRoMlwvdG9rZW4iLCJleHAiOjQ5MTE0MjU0MDksImlhdCI6MTc1NTY2NTQwOSwianRpIjoiMDdiOWVhZjItODI3Yy00ZDBjLTgzYzktZDQ5ZmNmZmNmYjcwIiwiY2xpZW50X2lkIjoiNFpuX3l0ZDM5djhmX2RRRDdiQUJFSHNWOWJNYSJ9.vcumZRM_ejOGYmL0kIfM03_hLAz5l2-xrc1iYHK9q1HziYawGfjkE3lrOuuX_1AEB-T9WB51dC_3eMs8R4aBsQT8dOtT4vc2yhctOAoFrsLqJskCFUo5bZTfBqMPwFldFZib5VPy4LFxUmBg1CSescRjQKBtgQuXL7aTJroPDVVbC1VGBOWeY_2UGuXCnb2QSD9MI0gpsoZXfrpiw57B8ScoQuese3na9K6hkQopydb9dJyFd48g9mbe3dQvXPtEkrrR7Btd3Lnr1Qh6QYcdDQS4Y7lOmA_NBd_D39ikuNKD1w5jLENgoHpjtT80kZ8kLwGWdcfGU0QrDXaos5KnrA"
+YOUR_EMAIL = "donguk.koo@samsung.com"
+
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+INPUT_CSV = os.environ.get("NPS_INPUT", "nps.csv")
+OUT_DIR = os.environ.get("NPS_OUT", "out")
+EXCEL_PATH = os.path.join(OUT_DIR, "nps_report.xlsx")
+PLOTS_DIR = os.path.join(OUT_DIR, "plots")
+SUB_MD_DIR = os.path.join(OUT_DIR, "subsidiary_reports")
+
+# Thresholds
+LOW_SCORE_THRESHOLD = 70.0 # highlight if <= 70
+WEEK_FREQ = "W-TUE" # weeks end on Tuesday (Tue-based)
+
+# Max Excel sheet name length
+EXCEL_SHEETNAME_MAXLEN = 31
+
+# ------------------------------------------------------------
+# Utilities & Robust API Calls
+# ------------------------------------------------------------
+def ensure_dirs():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+    os.makedirs(SUB_MD_DIR, exist_ok=True)
+
+def robust_api_call(func: Callable, *args, **kwargs) -> str:
+    """
+    API 호출(nps_sum, sm_local 등)을 안전하게 수행하는 래퍼 함수입니다.
+    KeyError('content')나 429 에러 발생 시 잠시 대기했다가 재시도합니다.
+    """
+    max_retries = 5
+    base_delay = 5.0  # 초기 대기 시간 (초)
+
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            err_msg = str(e).lower()
+            # API 호출량 초과(429) 또는 응답 파싱 실패('content') 시 재시도
+            if 'content' in err_msg or '429' in err_msg:
+                if attempt < max_retries - 1:
+                    sleep_time = base_delay * (attempt + 1) + random.uniform(0, 2)
+                    print(f"[Info] API 호출 지연 감지. {sleep_time:.1f}초 대기 후 재시도합니다... ({attempt + 1}/{max_retries})")
+                    time.sleep(sleep_time)
+                    continue
+            # 그 외 에러는 바로 raise 하거나, 실패 문자열 반환 (여기선 raise)
+            print(f"[Error] API call failed finally after {attempt} retries: {e}")
+            return "요약 실패(API Error)"
+    return "요약 실패(Max Retries)"
+
+def read_csv_safely(path: str) -> pd.DataFrame:
+    encodings = ["utf-8", "utf-8-sig", "cp949", "ms949", "euc-kr", "latin1"]
+    last_err = None
+    for enc in encodings:
+        try:
+            df = pd.read_csv(path, encoding=enc)
+            return df
+        except Exception as e:
+            last_err = e
+    try:
+        df = pd.read_csv(path, encoding="utf-8", engine="python", on_bad_lines="skip")
+        return df
+    except Exception:
+        print(f"[WARN] Failed to read {path}: {last_err}", file=sys.stderr)
+        return pd.DataFrame()
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        cols = ["Empty"]
+        return pd.DataFrame(columns=cols)
+
+    df.columns = [str(c).strip() for c in df.columns]
+
+    colmap_candidates = {
+        "Likelihood_to_Recommend": ["Likelihood_to_Recommend", "Likelihood to Recommend", "NPS", "Score", "추천점수", "추천 점수"],
+        "Response_Date__UTC_": ["Response_Date__UTC_","Response Date (UTC)", "Response_Date", "응답시간", "Date", "ResponseDate"],
+        "RHQ": ["RHQ", "총괄", "RegionHQ"],
+        "Subsidiary": ["Subsidiary", "법인", "Company"],
+        "Division": ["Division", "제품군", "ProductLine"],
+        "CS_Repair_LTR_Reason_for_Score": ["Reason_for_Score", "Reason", "이유", "CS_Repair_LTR_Reason_for_Score", "CS Repair LTR Reason for Score"],
+        "_Translated_CS_Repair_LTR_Reason_for_Score": ["_Translated_CS_Repair_LTR_Reason_for_Score", "(Translated) CS Repair LTR Reason for Score", "CS_Repair_LTR_Reason_for_Score"],
+        "Object_ID": ["Object_ID", "CS_Transaction_ID"],
+        "CS_Repair_Issue_Resolution__Yes_No_": ["CS_Repair_Issue_Resolution__Yes_No_", "CS Repair Issue Resolution (Yes/No)"],
+        "ImpactFactor": ["CS_Repair_Impact_Factor", "CS Repair Impact Factor", "ImpactFactor"],
+    }
+
+    renamer = {}
+    existing = set(df.columns)
+    for std, aliases in colmap_candidates.items():
+        for a in aliases:
+            if a in existing:
+                renamer[a] = std
+                break
+
+    df = df.rename(columns=renamer)
+
+    for needed in colmap_candidates.keys():
+        if needed not in df.columns:
+            df[needed] = np.nan
+
+    return df
+
+def create_new_division(df: pd.DataFrame) -> pd.DataFrame:
+    conditions = [
+        (df['Division'].isin(['VD','DA'])),
+        (df['Division'] == 'MX')
+    ]
+    choices = ['CE', 'MX']
+
+    df['Division2'] = np.select(
+        conditions,
+        choices,
+        default='OTH'
+    )
+
+    df['Comment'] = df['_Translated_CS_Repair_LTR_Reason_for_Score'].copy()
+    df['Comment'] = df['Comment'].fillna(df['CS_Repair_LTR_Reason_for_Score'])
+    return df
+
+def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
+    df["Likelihood_to_Recommend"] = pd.to_numeric(df["Likelihood_to_Recommend"], errors="coerce")
+    df["Response_Date__UTC_"] = pd.to_datetime(df["Response_Date__UTC_"], errors="coerce", utc=True)
+    for c in ["RHQ","Subsidiary","Division2","Comment","Service_Type",
+              "Object_ID","CS_Repair_Issue_Resolution__Yes_No_","ImpactFactor"]:
+        df[c] = df[c].astype(str).replace({"nan": np.nan})
+        df[c] = df[c].apply(lambda x: x.strip() if isinstance(x, str) else x)
+    return df
+
+def to_naive_utc(ts: pd.Timestamp) -> pd.Timestamp:
+    if pd.isna(ts):
+        return ts
+    ts = pd.to_datetime(ts)
+    if ts.tzinfo is not None:
+        try:
+            return ts.tz_convert("UTC").tz_localize(None)
+        except Exception:
+            return ts.tz_localize(None)
+    return ts
+
+def add_week_end(df: pd.DataFrame) -> pd.DataFrame:
+    if df["Response_Date__UTC_"].notna().any():
+        try:
+            ts = df["Response_Date__UTC_"].dt.tz_convert("UTC").dt.tz_localize(None)
+        except Exception:
+            ts = df["Response_Date__UTC_"].dt.tz_localize(None)
+        p = ts.dt.to_period(WEEK_FREQ)
+        df["week_end"] = p.dt.to_timestamp(how="end").dt.normalize()
+    else:
+        df["week_end"] = pd.NaT
+    return df
+
+def order_weeks(weeks: List[pd.Timestamp]) -> List[pd.Timestamp]:
+    ws = sorted([to_naive_utc(w) for w in weeks if pd.notna(w)])
+    return ws
+
+def last_weeks_list(all_weeks: List[pd.Timestamp]) -> List[pd.Timestamp]:
+    return list(reversed(all_weeks))
+
+def sanitize_sheet_name(name: str) -> str:
+    s = re.sub(r'[:\\/*?\[\]]', '_', str(name))
+    if len(s) > EXCEL_SHEETNAME_MAXLEN:
+        s = s[:EXCEL_SHEETNAME_MAXLEN]
+    if not s:
+        s = "_"
+    return s
+
+def fmt_week(d: pd.Timestamp) -> str:
+    if pd.isna(d):
+        return ""
+    return to_naive_utc(d).strftime("%Y-%m-%d")
+
+def wow_delta(last_val: float, prev_val: float) -> float:
+    if pd.isna(last_val) or pd.isna(prev_val):
+        return 0.0
+    try:
+        return float(last_val) - float(prev_val)
+    except Exception:
+        return 0.0
+
+def np_round(x: float, ndigits: int = 2) -> float:
+    if pd.isna(x):
+        return np.nan
+    try:
+        return float(np.round(x, ndigits))
+    except Exception:
+        return x
+
+# -------------------- NPS score --------------------
+def nps_from_scores(series: pd.Series) -> float:
+    if series is None:
+        return np.nan
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    total = len(s)
+    if total == 0:
+        return np.nan
+    detr = (s <= 6).sum()
+    prom = (s >= 9).sum()
+    return 100.0 * (prom - detr) / total
+
+# -------------------- Text helpers --------------------
+def clean_reason_str(x):
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return ""
+    s = re.sub(r"\s+", " ", str(x)).strip()
+    return s
+
+# ------------------------------------------------------------
+# Core computations
+# ------------------------------------------------------------
+def compute_summary_table(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[pd.Timestamp], pd.Timestamp, Optional[pd.Timestamp]]:
+    all_weeks = order_weeks(sorted(df["week_end"].dropna().unique()))
+    if not all_weeks:
+        return pd.DataFrame(columns=["RHQ","Subsidiary","Type","WoW_Change"]), [], pd.NaT, pd.NaT
+
+    weeks_desc = last_weeks_list(all_weeks)
+    last_w = weeks_desc[0]
+    prev_w = weeks_desc[1] if len(weeks_desc) > 1 else pd.NaT
+
+    def weekly_pivot(sub: pd.DataFrame, group_cols: List[str]) -> pd.DataFrame:
+        if sub.empty:
+            idx = pd.MultiIndex.from_product([[], []], names=group_cols)
+            return pd.DataFrame(index=idx, columns=all_weeks)
+        g = sub.groupby(group_cols + ["week_end"])["Likelihood_to_Recommend"].apply(nps_from_scores)
+        p = g.unstack("week_end").reindex(columns=all_weeks)
+        return p
+
+    group_cols = ["RHQ","Subsidiary"]
+    all_pivot = weekly_pivot(df, group_cols)
+    ci_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ci"], group_cols)
+    ps_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ps"], group_cols)
+    ih_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ih"], group_cols)
+
+    def add_type(piv: pd.DataFrame, type_name: str) -> pd.DataFrame:
+        piv = piv.copy()
+        piv["Type"] = type_name
+        piv = piv.reset_index().set_index(["RHQ","Subsidiary","Type"])
+        return piv
+
+    # [FIX] Pandas Warning: Filter out empty DataFrames before concat
+    dfs_to_concat = [
+        add_type(all_pivot, "All"),
+        add_type(ci_pivot, "CI"),
+        add_type(ps_pivot, "PS"),
+        add_type(ih_pivot, "IH")
+    ]
+    dfs_to_concat = [d for d in dfs_to_concat if not d.empty] # 빈 데이터 제외
+
+    if dfs_to_concat:
+        merged = pd.concat(dfs_to_concat, axis=0).sort_index()
+    else:
+        merged = pd.DataFrame()
+
+    if not merged.empty:
+        merged["WoW_Change"] = merged[last_w] - merged[prev_w] if pd.notna(prev_w) else 0.0
+        merged["WoW_Change"] = merged["WoW_Change"].fillna(0.0)
+    else:
+        # Fallback if everything empty
+        merged = pd.DataFrame(columns=["WoW_Change"])
+
+    week_cols = [w for w in weeks_desc]
+    week_col_names = [fmt_week(w) for w in week_cols]
+    rename_map = {w: fmt_week(w) for w in all_weeks}
+    merged = merged.rename(columns=rename_map)
+
+    divs = sorted([d for d in df["Division2"].dropna().unique()])
+    div_col_names = [f"Div:{d}" for d in divs] if divs else []
+
+    def div_last_pivot(sub: pd.DataFrame, type_name: str) -> pd.DataFrame:
+        if sub.empty or not divs:
+            idx = pd.MultiIndex.from_product([df["RHQ"].dropna().unique(),
+                                              df["Subsidiary"].dropna().unique(),
+                                              [type_name]], names=["RHQ","Subsidiary","Type"])
+            return pd.DataFrame(index=idx, columns=div_col_names)
+        g = sub[sub["week_end"] == last_w].groupby(["RHQ","Subsidiary","Division2"])["Likelihood_to_Recommend"].apply(nps_from_scores)
+        p = g.unstack("Division2").reindex(columns=divs)
+        if p is None or p.empty:
+            p = pd.DataFrame(columns=divs)
+        p.columns = [f"Div:{c}" for c in p.columns]
+        p["Type"] = type_name
+        p = p.reset_index().set_index(["RHQ","Subsidiary","Type"])
+        for c in div_col_names:
+            if c not in p.columns:
+                p[c] = np.nan
+        return p
+
+    all_div = div_last_pivot(df, "All")
+    ci_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ci"], "CI")
+    ps_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ps"], "PS")
+    ih_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ih"], "IH")
+
+    if not merged.empty:
+        merged = merged.join(all_div[div_col_names], how="left")
+        merged = merged.join(ci_div[div_col_names], how="left", rsuffix="_ci")
+        merged = merged.join(ps_div[div_col_names], how="left", rsuffix="_ps")
+        merged = merged.join(ih_div[div_col_names], how="left", rsuffix="_ih")
+
+    def row_filter_divs(row):
+        for base in div_col_names:
+            candidates = [c for c in row.index if c == base or c.startswith(base + "_")]
+            vals = [row.get(c, np.nan) for c in candidates]
+            v = next((v for v in vals if pd.notna(v)), np.nan)
+            row[base] = v
+        return row
+
+    if not merged.empty and div_col_names:
+        merged = merged.apply(row_filter_divs, axis=1)
+        merged = merged[[c for c in merged.columns if not re.search(r'_ci$|_ps$|_ih$', c)]] # cleanup
+
+    merged = merged.reset_index()
+    all_cols = ["RHQ","Subsidiary","Type","WoW_Change"] + week_col_names + div_col_names
+    for c in all_cols:
+        if c not in merged.columns:
+            merged[c] = np.nan
+    merged = merged[all_cols]
+
+    def compute_global_for_type(type_name: str) -> pd.Series:
+        if type_name == "All":
+            sub = df
+        elif type_name == "CI":
+            sub = df[df["Service_Type"].str.lower() == "ci"]
+        elif type_name == "PS":
+            sub = df[df["Service_Type"].str.lower() == "ps"]
+        else:
+            sub = df[df["Service_Type"].str.lower() == "ih"]
+
+        w = sub.groupby("week_end")["Likelihood_to_Recommend"].apply(nps_from_scores).reindex(all_weeks)
+        row = {"RHQ": "Global", "Subsidiary": "Global", "Type": type_name}
+        row["WoW_Change"] = wow_delta(w.iloc[-1] if len(w) else np.nan,
+                                      w.iloc[-2] if len(w) > 1 else np.nan)
+        for wk in week_cols:
+            row[fmt_week(wk)] = np_round(w.get(wk, np.nan))
+        for d in divs:
+            key = f"Div:{d}"
+            last_val = sub[sub["week_end"] == last_w]
+            if not last_val.empty:
+                row[key] = np_round(last_val.groupby("Division2")["Likelihood_to_Recommend"].apply(nps_from_scores).get(d, np.nan))
+            else:
+                row[key] = np.nan
+        return pd.Series(row)
+
+    globals_rows = pd.DataFrame([compute_global_for_type(t) for t in ["All","CI","PS","IH"]])
+    
+    # [FIX] Concat filtering
+    final_dfs = [d for d in [globals_rows[all_cols], merged[all_cols]] if not d.empty]
+    if final_dfs:
+        merged = pd.concat(final_dfs, ignore_index=True)
+    else:
+        merged = pd.DataFrame(columns=all_cols)
+
+    num_cols = [c for c in merged.columns if c not in ["RHQ","Subsidiary","Type"]]
+    
+    # [FIX] applymap -> map
+    merged[num_cols] = merged[num_cols].map(lambda v: np_round(v) if (isinstance(v, (int, float, np.floating)) or pd.notna(v)) else v)
+
+    return merged, all_weeks, last_w, prev_w
+
+def compute_subdiv_sheet(df: pd.DataFrame, rhq: str, sub: str, div: str,
+                          all_weeks: List[pd.Timestamp]) -> pd.DataFrame:
+    weeks_desc = last_weeks_list(all_weeks)
+    week_col_names = [fmt_week(w) for w in weeks_desc]
+
+    base = df[(df["RHQ"] == rhq) & (df["Subsidiary"] == sub) & (df["Division2"] == div)].copy()
+    if base.empty:
+        columns = ["RHQ","Subsidiary","Type","ImpactFactor","WoW_Change"] + week_col_names
+        return pd.DataFrame(columns=columns)
+
+    def build_for_type(tp: str, factor_col: str) -> pd.DataFrame:
+        part = base.copy()
+        part = part[part["Service_Type"].str.lower() == tp.lower()]
+        if part.empty:
+            columns = ["RHQ","Subsidiary","Type","ImpactFactor","WoW_Change"] + week_col_names
+            return pd.DataFrame(columns=columns)
+
+        part["ImpactFactor"] = part[factor_col]
+        part.loc[part["ImpactFactor"].isna() | (part["ImpactFactor"] == ""), "ImpactFactor"] = "(Unspecified)"
+
+        g = part.groupby(["ImpactFactor","week_end"])["Likelihood_to_Recommend"].apply(nps_from_scores).unstack("week_end")
+        g = g.reindex(columns=all_weeks)
+        g = g.reset_index()
+
+        last_w = weeks_desc[0] if weeks_desc else pd.NaT
+        prev_w = weeks_desc[1] if len(weeks_desc) > 1 else pd.NaT
+        def row_wow(row):
+            last_val = row.get(last_w, np.nan)
+            prev_val = row.get(prev_w, np.nan)
+            return wow_delta(last_val, prev_val)
+
+        g["WoW_Change"] = g.apply(row_wow, axis=1)
+
+        g = g.rename(columns={w: fmt_week(w) for w in all_weeks})
+        g = g[["ImpactFactor","WoW_Change"] + week_col_names]
+
+        if tp.lower() == "ci":
+            type_val = "CI"
+        elif tp.lower() == "ps":
+            type_val = "PS"
+        elif tp.lower() == "ih":
+            type_val = "IH"
+        else:
+            type_val = "Other"
+
+        g.insert(0, "Type", type_val)
+        g.insert(0, "Subsidiary", sub)
+        g.insert(0, "RHQ", rhq)
+
+        num_cols = [c for c in g.columns if c not in ["RHQ","Subsidiary","Type","ImpactFactor"]]
+        # [FIX] applymap -> map
+        g[num_cols] = g[num_cols].map(np_round)
+
+        return g
+
+    ci_df = build_for_type("CI", "ImpactFactor")
+    ps_df = build_for_type("PS", "ImpactFactor")
+    ih_df = build_for_type("IH", "ImpactFactor")
+
+    # [FIX] Concat filtering
+    dfs = [d for d in [ci_df, ps_df, ih_df] if not d.empty]
+    if dfs:
+        out = pd.concat(dfs, ignore_index=True)
+        out = out.sort_values(by=["Type","ImpactFactor"], kind="stable")
+    else:
+        out = pd.DataFrame()
+    return out
+
+# ------------------------------------------------------------
+# Excel writer with formatting
+# ------------------------------------------------------------
+def write_excel(summary_df: pd.DataFrame,
+                df: pd.DataFrame,
+                all_weeks: List[pd.Timestamp]) -> None:
+    with pd.ExcelWriter(EXCEL_PATH, engine="xlsxwriter") as writer:
+        sheet_name = "Summary"
+        summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        ws = writer.sheets[sheet_name]
+        wb = writer.book
+
+        fmt_header = wb.add_format({"bold": True, "text_wrap": True, "valign": "top", "border": 0})
+        fmt_num = wb.add_format({"num_format": "0.00"})
+        fmt_yellow = wb.add_format({"bg_color": "#FFF2CC"})
+        fmt_red = wb.add_format({"bg_color": "#F8CBAD"})
+
+        ws.set_column(0, 0, 12)
+        ws.set_column(1, 1, 18)
+        ws.set_column(2, 2, 8)
+        ws.set_column(3, 3, 12)
+        ncols = len(summary_df.columns)
+        ws.set_column(4, ncols-1, 12, fmt_num)
+
+        ws.set_row(0, None, fmt_header)
+
+        nrows = len(summary_df) + 1
+        ws.conditional_format(1, 3, nrows-1, 3, {
+            "type": "cell", "criteria": "<", "value": 0, "format": fmt_red
+        })
+        if ncols > 4:
+            ws.conditional_format(1, 4, nrows-1, ncols-1, {
+                "type": "cell", "criteria": "<=", "value": LOW_SCORE_THRESHOLD, "format": fmt_yellow
+            })
+
+        ws.freeze_panes(1, 4)
+
+        pairs = df[["RHQ","Subsidiary","Division2"]].dropna().drop_duplicates()
+        for _, row in pairs.iterrows():
+            rhq = row["RHQ"]; sub = row["Subsidiary"]; div = row["Division2"]
+            sub_div = f"{sub} - {div}"
+            sheet = sanitize_sheet_name(sub_div)
+            base_sheet = sheet; suffix = 1
+            while sheet in writer.sheets:
+                sheet = sanitize_sheet_name(f"{base_sheet}_{suffix}"); suffix += 1
+
+            sd_df = compute_subdiv_sheet(df, rhq, sub, div, all_weeks)
+            if sd_df.empty:
+                continue
+                
+            sd_df.to_excel(writer, sheet_name=sheet, index=False)
+            w = writer.sheets[sheet]
+            w.set_column(0, 0, 12)
+            w.set_column(1, 1, 18)
+            w.set_column(2, 2, 8)
+            w.set_column(3, 3, 24)
+            w.set_column(4, 4, 12)
+            ncols2 = len(sd_df.columns)
+            w.set_column(5, max(5, ncols2-1), 12, fmt_num)
+            w.set_row(0, None, fmt_header)
+            nrows2 = len(sd_df) + 1
+            w.conditional_format(1, 4, nrows2-1, 4, {
+                "type": "cell", "criteria": "<", "value": 0, "format": fmt_red
+            })
+            if ncols2 > 5:
+                w.conditional_format(1, 5, nrows2-1, ncols2-1, {
+                    "type": "cell", "criteria": "<=", "value": LOW_SCORE_THRESHOLD, "format": fmt_yellow
+                })
+            w.freeze_panes(1, 5)
+
+
+def save_trend_plot(series: pd.Series, title: str, path: str):
+    plt.figure(figsize=(8, 4.5))
+    try:
+        s = series.dropna().sort_index()
+        plt.plot(s.index, s.values, marker='o')
+        plt.title(title)
+        plt.xlabel("Week (end Tue)")
+        plt.ylabel("NPS")
+        plt.grid(True, linestyle='--', linewidth=0.5)
+        plt.tight_layout()
+        plt.savefig(path, dpi=150, bbox_inches='tight')
+    except Exception:
+        plt.title(title + " (no data)")
+        plt.tight_layout()
+        plt.savefig(path, dpi=150, bbox_inches='tight')
+    finally:
+        plt.close()
+
+def _pick_completed_week_end(all_weeks: List[pd.Timestamp], max_dt: pd.Timestamp) -> pd.Timestamp:
+    if not all_weeks:
+        return pd.NaT
+    max_dt_naive = to_naive_utc(max_dt).normalize()
+    cutoff = max_dt_naive - pd.Timedelta(days=7)
+    candidates = [w for w in all_weeks if w <= cutoff]
+    if candidates:
+        return candidates[-1]
+    return all_weeks[-1]
+
+def _recent_weeks_up_to(all_weeks: List[pd.Timestamp], end_week: pd.Timestamp, k: int = 6) -> List[pd.Timestamp]:
+    arr = [w for w in all_weeks if w <= end_week]
+    return arr[-(k+1):]
+
+def _stable_rng(seed_text: str) -> random.Random:
+    h = hashlib.sha256(seed_text.encode("utf-8")).hexdigest()
+    seed_int = int(h[:16], 16)
+    return random.Random(seed_int)
+
+def _sample_texts(df: pd.DataFrame, n: int, seed_text: str) -> List[str]:
+    rng = _stable_rng(seed_text)
+    idxs = list(df.index)
+    rng.shuffle(idxs)
+    take = idxs[:max(0, min(n, len(idxs)))]
+    out = []
+    for i in take:
+        s = clean_reason_str(df.at[i, "Comment"])
+        if not s or s.lower() == "no reason":
+            continue
+        out.append(s)
+    return out
+
+def build_global_markdown(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) -> None:
+    # [FIX] Use robust_api_call for sm_global
+    if not all_weeks:
+        safe_msg = robust_api_call(sm_global, "")
+        md = "# Global NPS Report\n\n데이터가 없습니다.\n\n" + safe_msg
+        with open(os.path.join(OUT_DIR, "global_report.md"), "w", encoding="utf-8") as f:
+            f.write(md)
+        return
+
+    last_w = all_weeks[-1]
+    prev_w = all_weeks[-2] if len(all_weeks) > 1 else None
+
+    g_series = df.groupby("week_end")["Likelihood_to_Recommend"].apply(nps_from_scores).reindex(all_weeks)
+    plot_path = os.path.join(PLOTS_DIR, "global_trend.png")
+    save_trend_plot(pd.Series(g_series.values, index=[pd.to_datetime(w) for w in all_weeks]),
+                    "Global Weekly NPS", plot_path)
+
+    last_val = float(g_series.iloc[-1]) if not pd.isna(g_series.iloc[-1]) else np.nan
+    prev_val = float(g_series.iloc[-2]) if prev_w is not None and not pd.isna(g_series.iloc[-2]) else np.nan
+    delta = wow_delta(last_val, prev_val)
+
+    last_label = fmt_week(last_w)
+    prev_label = fmt_week(prev_w) if prev_w is not None else "N/A"
+    trend_line = f"**글로벌 NPS**: {np_round(last_val)}점 (전주 {prev_label} 대비 {np_round(delta)} 변화)"
+
+    sub_week = (df.groupby(["Subsidiary","week_end"])["Likelihood_to_Recommend"]
+                  .apply(nps_from_scores)
+                  .unstack("week_end"))
+    sub_week = sub_week.reindex(columns=all_weeks)
+    rows = []
+    for sub in sorted([s for s in sub_week.index if pd.notna(s)]):
+        srow = sub_week.loc[sub]
+        lv = float(srow.iloc[-1]) if not pd.isna(srow.iloc[-1]) else np.nan
+        pv = float(srow.iloc[-2]) if sub_week.shape[1] > 1 and not pd.isna(srow.iloc[-2]) else np.nan
+        d = wow_delta(lv, pv)
+        rows.append((str(sub), np_round(lv), np_round(d)))
+
+    header = "| 법인 | 마지막주 | 증감 | 법인 | 마지막주 | 증감 |\n|---|---:|---:|---|---:|---:|\n"
+    body_lines = []
+    for i in range(0, len(rows), 2):
+        left = rows[i] if i < len(rows) else ("", "", "")
+        right = rows[i+1] if i+1 < len(rows) else ("", "", "")
+        body_lines.append(f"| {left[0]} | {left[1]} | {left[2]} | {right[0]} | {right[1]} | {right[2]} |")
+    table_md = header + "\n".join(body_lines) + ("\n" if body_lines else "")
+
+    md_parts = [
+        "# Global NPS Report",
+        trend_line,
+        "",
+        f"![Global Trend]({os.path.relpath(plot_path, OUT_DIR).replace(os.sep,'/')})",
+        "",
+        f"**마지막 주차 ({last_label}) 법인별 NPS 및 전주 대비 변화**",
+        table_md
+    ]
+    report_md = "\n".join(md_parts)
+    
+    # [FIX] Robust call
+    final_comment = robust_api_call(sm_local, report_md)
+    report_md = report_md.strip() + "\n\n" + final_comment
+
+    with open(os.path.join(OUT_DIR, "global_report.md"), "w", encoding="utf-8") as f:
+        f.write(report_md)
+
+def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) -> None:
+    if not all_weeks:
+        return
+
+    max_dt = df["Response_Date__UTC_"].dropna().max()
+    if pd.isna(max_dt):
+        max_dt = pd.Timestamp.today().normalize()
+    this_week = _pick_completed_week_end(all_weeks, max_dt)
+
+    subsidiaries = sorted([s for s in df["Subsidiary"].dropna().unique()])
+
+    for sub in subsidiaries:
+        print(f"Processing subsidiary: {sub}")
+        # [FIX] Sleep to avoid rate limit (proactive)
+        time.sleep(1)
+
+        sub_df = df[df["Subsidiary"] == sub].copy()
+        if sub_df.empty:
+            safe_msg = robust_api_call(sm_local, "")
+            md = f"# {sub} NPS Report\n데이터가 없습니다.\n\n" + safe_msg
+            out_path = os.path.join(SUB_MD_DIR, f"{sub}.md")
+            safe_path = _safe_filename(out_path)
+            with open(safe_path, "w", encoding="utf-8") as f:
+                f.write(md)
+            continue
+
+        # ---- 1) 최근 6주 텍스트 라인 ----
+        weeks_span = _recent_weeks_up_to(all_weeks, this_week, k=6)
+        sub_series_all = (sub_df.groupby("week_end")["Likelihood_to_Recommend"]
+                                .apply(nps_from_scores)
+                                .reindex(weeks_span))
+        n_points = len(weeks_span)
+        parts = []
+        for i, wk in enumerate(weeks_span):
+            step_back = (n_points - 1) - i
+            label = f"W-{step_back}" if step_back > 0 else "W "
+            val = np_round(sub_series_all.iloc[i])
+            parts.append(f"{label}({val})")
+        trend_line = "- " + " -> ".join(parts) if parts else "- 데이터 없음"
+
+        # ---- Impact influence helper (이번주 기준) ----
+        def impact_influence(tp: str, factor_col: str) -> pd.DataFrame:
+            part = sub_df[sub_df["Service_Type"].str.lower() == tp.lower()].copy()
+            part = part[part["week_end"] == this_week]
+            if part.empty:
+                return pd.DataFrame(columns=["ImpactFactor","NPS","Count","Influence"])
+
+            part["ImpactFactor"] = part[factor_col]
+            part.loc[part["ImpactFactor"].isna() | (part["ImpactFactor"] == ""), "ImpactFactor"] = "(Unspecified)"
+
+            overall_nps = nps_from_scores(part["Likelihood_to_Recommend"])
+            total_n = part["Likelihood_to_Recommend"].notna().sum()
+
+            g_nps = part.groupby("ImpactFactor")["Likelihood_to_Recommend"].apply(nps_from_scores)
+            g_cnt = part.groupby("ImpactFactor")["Likelihood_to_Recommend"].apply(lambda s: s.notna().sum())
+            out = pd.DataFrame({"ImpactFactor": g_nps.index, "NPS": g_nps.values, "Count": g_cnt.values})
+
+            if total_n > 0:
+                out["Influence"] = (out["Count"].astype(float) / float(total_n)) * (out["NPS"] - overall_nps)
+            else:
+                out["Influence"] = np.nan
+
+            out = out.sort_values(by=["Influence","ImpactFactor"], ascending=[True, True]).reset_index(drop=True)
+            # [FIX] apply -> map for safety on series
+            out["NPS"] = out["NPS"].apply(np_round)
+            out["Influence"] = out["Influence"].apply(np_round)
+            return out
+
+        CI_imp = impact_influence("CI","ImpactFactor")
+        PS_imp = impact_influence("PS","ImpactFactor")
+        IH_imp = impact_influence("IH","ImpactFactor")
+
+        # ---- 2) CI NPS 분석 결과 ----
+        ci_all = sub_df[sub_df["Service_Type"].str.lower() == "ci"].copy()
+        pos_ci = ci_all[ci_all["Likelihood_to_Recommend"] >= 9].copy()
+        neg_ci = ci_all[ci_all["Likelihood_to_Recommend"] <= 6].copy()
+
+        pos_ci_samples = _sample_texts(pos_ci, 5, f"{sub}-ci-pos")
+        neg_ci_samples = _sample_texts(neg_ci, 5, f"{sub}-ci-neg")
+
+        # [FIX] Robust calls for nps_sum
+        pos_ci_summary = robust_api_call(nps_sum, " ".join(pos_ci_samples)) if pos_ci_samples else "요약"
+        neg_ci_summary = robust_api_call(nps_sum, " ".join(neg_ci_samples)) if neg_ci_samples else "요약"
+
+        # ---- 3) PS NPS 분석 결과 ----
+        ps_all = sub_df[sub_df["Service_Type"].str.lower() == "ps"].copy()
+        pos_ps = ps_all[ps_all["Likelihood_to_Recommend"] >= 9].copy()
+        neg_ps = ps_all[ps_all["Likelihood_to_Recommend"] <= 6].copy()
+
+        pos_ps_samples = _sample_texts(pos_ps, 5, f"{sub}-ps-pos")
+        neg_ps_samples = _sample_texts(neg_ps, 5, f"{sub}-ps-neg")
+
+        pos_ps_summary = robust_api_call(nps_sum, " ".join(pos_ps_samples)) if pos_ps_samples else "요약"
+        neg_ps_summary = robust_api_call(nps_sum, " ".join(neg_ps_samples)) if neg_ps_samples else "요약"
+
+        # ---- 4) IH NPS 분석 결과 ----
+        ih_all = sub_df[sub_df["Service_Type"].str.lower() == "ih"].copy()
+        pos_ih = ih_all[ih_all["Likelihood_to_Recommend"] >= 9].copy()
+        neg_ih = ih_all[ih_all["Likelihood_to_Recommend"] <= 6].copy()
+
+        pos_ih_samples = _sample_texts(pos_ih, 5, f"{sub}-ih-pos")
+        neg_ih_samples = _sample_texts(neg_ih, 5, f"{sub}-ih-neg")
+
+        pos_ih_summary = robust_api_call(nps_sum, " ".join(pos_ih_samples)) if pos_ih_samples else "요약"
+        neg_ih_summary = robust_api_call(nps_sum, " ".join(neg_ih_samples)) if neg_ih_samples else "요약"
+
+        # ---- Build markdown ----
+        md_lines = [] 
+        md_lines.append(f"# {sub} NPS Report")
+        md_lines.append("## 1) NPS trend")
+        md_lines.append(trend_line)
+        md_lines.append("")
+        md_lines.append("## 2) CI NPS analysis results")
+        md_lines.append("### Positive Summary")
+        md_lines.append(pos_ci_summary)
+        if pos_ci_samples:
+            for s in pos_ci_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Negative Summary")
+        md_lines.append(neg_ci_summary)
+        if neg_ci_samples:
+            for s in neg_ci_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Impact Factor Table (CI)")
+        if CI_imp.empty:
+            md_lines.append("_데이터 없음_")
+        else:
+            md_lines.append("| Impact Factor | NPS | Count | Influence |")
+            md_lines.append("|---|---:|---:|---:|")
+            for _, r in CI_imp.iterrows():
+                md_lines.append(f"| {r['ImpactFactor']} | {r['NPS']} | {int(r['Count']) if not pd.isna(r['Count']) else 0} | {r['Influence']} |")
+        md_lines.append("")
+        
+        md_lines.append("## 3) PS NPS analysis results")
+        md_lines.append("### Positive Summary")
+        md_lines.append(pos_ps_summary)
+        if pos_ps_samples:
+            for s in pos_ps_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Negative Summary")
+        md_lines.append(neg_ps_summary)
+        if neg_ps_samples:
+            for s in neg_ps_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Impact Factor Table (PS)")
+        if PS_imp.empty:
+            md_lines.append("_데이터 없음_")
+        else:
+            md_lines.append("| Impact Factor | NPS | Count | Influence |")
+            md_lines.append("|---|---:|---:|---:|")
+            for _, r in PS_imp.iterrows():
+                md_lines.append(f"| {r['ImpactFactor']} | {r['NPS']} | {int(r['Count']) if not pd.isna(r['Count']) else 0} | {r['Influence']} |")
+        md_lines.append("")
+        
+        md_lines.append("## 4) IH NPS analysis results")
+        md_lines.append("### Positive Summary")
+        md_lines.append(pos_ih_summary)
+        if pos_ih_samples:
+            for s in pos_ih_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Negative Summary")
+        md_lines.append(neg_ih_summary)
+        if neg_ih_samples:
+            for s in neg_ih_samples:
+                md_lines.append(f"- {s}")
+        else:
+            md_lines.append("_해당 리뷰 없음_")
+        md_lines.append("")
+        md_lines.append("### Impact Factor Table (IH)")
+        if IH_imp.empty:
+            md_lines.append("_데이터 없음_")
+        else:
+            md_lines.append("| Impact Factor | NPS | Count | Influence |")
+            md_lines.append("|---|---:|---:|---:|")
+            for _, r in IH_imp.iterrows():
+                md_lines.append(f"| {r['ImpactFactor']} | {r['NPS']} | {int(r['Count']) if not pd.isna(r['Count']) else 0} | {r['Influence']} |")
+        md_lines.append("")
+
+        md = "\n".join(md_lines).strip()
+        
+        # [FIX] Robust call
+        final_comment = robust_api_call(sm_local, md)
+        md = md + "\n\n" + final_comment
+
+        out_path = os.path.join(SUB_MD_DIR, f"{sub}.md")
+        safe_path = _safe_filename(out_path)
+        
+        with open(safe_path, "w", encoding="utf-8") as f:
+            f.write(md)
+            
+        save_md_pdf(md,sub+"8.pdf")
+
+
+def save_md_pdf(a: str, filename: str) -> str:
+    """
+    마크다운 문자열 `a`를 PDF로 저장합니다.
+    """
+    import os, shutil, subprocess, tempfile, html
+    from pathlib import Path
+
+    def md_to_html_body(md_text: str) -> str:
+        try:
+            import markdown
+            return markdown.markdown(md_text, extensions=["extra", "sane_lists"])
+        except Exception:
+            safe = html.escape(md_text).replace("\n", "<br>\n")
+            return f"<div>{safe}</div>"
+
+    BASE_CSS = """
+    @page { size: A4; margin: 18mm; }
+    body {
+      font-family: "Malgun Gothic","맑은 고딕","Noto Sans CJK KR","Noto Sans KR",Arial,sans-serif;
+      line-height: 1.6; font-size: 12pt;
+    }
+    h1,h2,h3,h4 { margin-top: 1.2em; }
+    code, pre { font-family: Consolas, "Noto Sans Mono", monospace; }
+    pre { background: #f6f8fa; padding: 10px; border-radius: 6px; overflow-wrap: anywhere; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #ddd; padding: 6px 10px; }
+    """
+
+    def wrap_html(title: str, body_html: str) -> str:
+        return f"""<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><title>{html.escape(title)}</title>
+<style>{BASE_CSS}</style></head><body>
+{body_html}
+</body></html>"""
+
+    def find_browser() -> str | None:
+        for name in ["msedge", "msedge.exe", "chrome", "chrome.exe", "chromium", "chromium.exe"]:
+            p = shutil.which(name)
+            if p: return p
+        for p in [
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]:
+            if os.path.exists(p): return p
+        return None
+
+    def print_with_browser(browser_exe: str, html_path: Path, pdf_path: Path) -> bool:
+        file_uri = html_path.resolve().as_uri()
+        for headless_flag in ["--headless=new", "--headless"]:
+            cmd = [
+                browser_exe, headless_flag,
+                f"--print-to-pdf={str(pdf_path.resolve())}",
+                "--print-to-pdf-no-header",
+                file_uri,
+            ]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if proc.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 0:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def try_wkhtmltopdf(html_path: Path, pdf_path: Path) -> bool:
+        wk = shutil.which("wkhtmltopdf") or shutil.which("wkhtmltopdf.exe")
+        if not wk: return False
+        try:
+            proc = subprocess.run([wk, str(html_path), str(pdf_path)], capture_output=True, text=True, timeout=60)
+            return proc.returncode == 0 and pdf_path.exists() and pdf_path.stat().st_size > 0
+        except Exception:
+            return False
+
+    name_only = Path(filename).name
+    out = (Path.cwd() / name_only)
+    if out.suffix.lower() != ".pdf":
+        out = out.with_suffix(".pdf")
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    title = out.stem
+    body = md_to_html_body(a)
+    html_full = wrap_html(title, body)
+
+    with tempfile.TemporaryDirectory() as td:
+        html_path = Path(td) / "doc.html"
+        html_path.write_text(html_full, encoding="utf-8")
+
+        br = find_browser()
+        if br and print_with_browser(br, html_path, out):
+            return str(out.resolve())
+        if try_wkhtmltopdf(html_path, out):
+            return str(out.resolve())
+
+    # 실패 시에도 에러를 띄우지 않고 넘어감 (PDF만 생성 안됨)
+    print(f"[WARN] PDF creation failed for {filename}. Skipping.")
+    return ""
+
+
+# ------------------------------------------------------------
+# File path helper to avoid invalid filenames
+# ------------------------------------------------------------
+def _safe_filename(path: str) -> str:
+    d, fn = os.path.split(path)
+    base, ext = os.path.splitext(fn)
+    base = re.sub(r'[\\/:*?"<>|]+', "_", base)
+    if not base:
+        base = "_"
+    return os.path.join(d, base + ext)
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+def main():
+    ensure_dirs()
+
+    df_raw = read_csv_safely(INPUT_CSV)
+    df_raw = normalize_columns(df_raw)
+    df_raw = create_new_division(df_raw)
+    df_raw = coerce_types(df_raw)
+    df = df_raw.copy()
+
+    if df.empty:
+        with pd.ExcelWriter(EXCEL_PATH, engine="xlsxwriter") as writer:
+            pd.DataFrame(columns=["RHQ","Subsidiary","Type","WoW_Change"]).to_excel(writer, sheet_name="Summary", index=False)
+        # [FIX] Robust call
+        safe_msg = robust_api_call(sm_global, "")
+        with open(os.path.join(OUT_DIR, "global_report.md"), "w", encoding="utf-8") as f:
+            f.write("# Global NPS Report\n\n데이터가 없습니다.\n\n" + safe_msg)
+        print(f"[OK] No data rows. Created empty outputs in '{OUT_DIR}'.")
+        return
+
+    df = add_week_end(df)
+
+    if df["week_end"].isna().all():
+        max_dt = pd.to_datetime("today").normalize()
+        df["week_end"] = max_dt
+
+    summary_df, all_weeks, last_w, prev_w = compute_summary_table(df)
+
+    write_excel(summary_df, df, all_weeks)
+
+    build_global_markdown(df, all_weeks)
+    build_subsidiary_markdowns(df, all_weeks)
+
+    print(f"[OK] Reports created in '{OUT_DIR}'.")
+    print(f" - Excel: {EXCEL_PATH}")
+    print(f" - Global MD: {os.path.join(OUT_DIR, 'global_report.md')}")
+    print(f" - Subsidiary MDs: {SUB_MD_DIR}")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"[WARN] Unexpected error: {e}", file=sys.stderr)
+        try:
+            ensure_dirs()
+            with open(os.path.join(OUT_DIR, "error.txt"), "w", encoding="utf-8") as f:
+                f.write(str(e))
+        except Exception:
+            pass
+        sys.exit(0)
