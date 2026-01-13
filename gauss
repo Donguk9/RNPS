@@ -1,21 +1,4 @@
-headers = {
-  "x-generative-ai-client": YOUR_CLIENT_KEY,
-  "x-openapi-token": YOUR_PASS_KEY,
-  "x-generative-ai-user-email": YOUR_EMAIL
-}
-
-import requests as requests
-models_api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/models"
-
-
-def model_read():
-    response=requests.get(
-        models_api_endpoint_url,
-        headers=headers
-    )
-    print(response.json())
-
-    
+   
 def nps_sum(text):    
     body = {
     "modelIds": [YOUR_MODEL_ID],
@@ -61,6 +44,8 @@ def nps_sum(text):
     )
     print(response)
     return response.json()["content"]
+
+
 
 
 def sm_global(a):
@@ -109,7 +94,10 @@ def sm_global(a):
     print(response)
     return response.json()["content"]
 
-    
+
+
+
+
 def sm_local(a):
     body = {
     "modelIds": [YOUR_MODEL_ID],
@@ -164,42 +152,3 @@ Analyze the following NPS data and provide feedback.
     )
     print(response)
     return response.json()["content"]    
-
-
-# --- Commented sections also translated for consistency ---
-
-# def Classification_Chat(a):
-#     body = {
-#     "modelIds": [YOUR_MODEL_ID],
-#     "contents": ["""
-#                 You will be provided with customer feedback data.
-#                 I want to classify this feedback.
-#                 The goal is to classify each piece of feedback into a 'Subcategory' within a 'Main Category'.
-#                 Even if there isn't an exact match, choose the most similar Subcategory.
-#                 Never omit any items. If 100 feedbacks are provided, all 100 must be classified.
-#                 Note: Classify into 'Subcategories', not 'Main Categories'.
-#                 If the feedback is in Korean, provide the category names in Korean.
-#                 Ensure a result is always returned.
-#
-#                  -------------------------------DATA-------------------------
-#                  """ + a],
-#     "llmConfig": { ... },
-#     "isStream": False,
-#     "systemPrompt":"""
-# # Output Format
-# - Must follow the format below.
-# - No text other than the classification table.
-# - Do not use code blocks like ```markdown.
-# - No omissions: All N feedbacks must be classified into a Subcategory.
-# - Avoid clustering all items into a single category.
-# - Add a 'Sample Feedback' column on the far right for each Subcategory.
-# - If reviews are in Korean, translate Category names into Korean.
-#
-# Type | Category Name | Count | Sample Feedback |
-# (Follow the table structure below...)
-#
-# Description: Rows starting with "1." are Main Categories and are not targets for individual classification. 
-# The count for the Main Category is the sum of its Subcategories. 
-# All feedback must be assigned to a Subcategory.
-# """
-#     }
