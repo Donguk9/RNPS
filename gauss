@@ -1,4 +1,11 @@
 
+headers = {
+  "x-generative-ai-client": YOUR_CLIENT_KEY,
+  "x-openapi-token": YOUR_PASS_KEY,
+  "x-generative-ai-user-email": YOUR_EMAIL
+}
+
+import requests as requests
 models_api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/models"
 
 
@@ -11,31 +18,20 @@ def model_read():
     # 응답 반환
     print(response.json())
 
-
-## Gauss- O 01988e4f-ac3d-7e6d-b1f2-950364057a30
-## Gauss- O Think 01988e50-ee82-7e59-8e74-814043536522
-## Gauss- Think 019874cc-19e5-7ca7-8770-93bc3e8d005c
-
-YOUR_MODEL_ID = "01988e50-ee82-7e59-8e74-814043536522"
-
-def Classification_Chat(a):
+    
+def nps_sum(text):    
     body = {
     "modelIds": [YOUR_MODEL_ID],
     "contents": ["""
+                 다음은 수리 NPS (Net promoter score) 점수에 관한 데이터이다.
                  
-                너에게는 고객의 피드백 데이터가 주어질 꺼야. 
-                나는 이런 고객 피드백들을 분류하고 싶어.
-                분류는 대카테고리 속에 서브카테고리가 있는데 이 중 하나의 서브카테고리로 분류하는 게 목적이야.
-                정확히 일치하는 서브카테고리가 없더라도 가장 유사한 서브카테고리로 분류하면 돼.
-                단 절대로 누락되는 항목이 있어선 안돼. 즉 100개의 피드백이 전달되면 100개모두 어딘가로는 분류가 되어야하고,
-                분류 항목은 서브카테고리라는 거야.
-                메인카테고리로는 분류하는게 아니야. 서브카테고리로만 분류하는 것임에 주의해.
-                피드백이 한국어로 되어있는 경우 카테고리 명도 한국어로 작성해줘                
-                출력결과가 안나오는 일은 있어서는 안된다. 
-                반드시 분류 결과표를 돌려줘야한다.
-
+                 즉 고객의 제품 문제로 진행된 수리 서비스에 대한 만족도 점수로,
+                 
+                 다음의 데이터를 요약해서 알기 쉽게 정리해라.
+                 
+                 리뷰가 한국어인 경우에는 모든 출력은 한국어로, 한국어가 아닌 경우에는 리뷰 인용은 원어로, 나머지는 출력은 영어로작성해라.
                  -------------------------------데이터-------------------------
-                 """ + a],
+                 """ + text],
     "llmConfig": {
         "max_new_tokens": 4096,
         "seed": None,
@@ -46,40 +42,17 @@ def Classification_Chat(a):
     },
     "isStream": False,
     "systemPrompt":"""
+    # 입력
+    - NPS (Net Promoter Score) 데이터
     
-# 출력 형태
-- 반드시 아래의 출력 형태로 출력되야한다. 
-- 분류 결과 외 다른 출력은 없어야한다.
-- ```markdown과 같은 표시는 없어야한다.
-- 전달된 n개의 피드백은 Subcategory 중 어딘가로는 분류되어야한다. (누락항목이 있으면 안된다.)
-- 하나의 카테고리로 몰려서 분류되는 것, 누락되는 것은 절대 허용되지 않는다.
-- 해당 3개의 열 가장 우측에, 각 서브 카테고리 샘플 열을 추가하여 샘플 피드백을 넣어라
-- 리뷰가 한국어인 경우에는 카테고리 네임도 한국어로 번역해서 출력한다.
- Type       | Category Name                                | Count | | Sample Feedback |
-|---------------------|---------------------------------------------|-------|
-|  1. Chat consultation connection process  |         |      |total count of category 1
-|      | 1-1 Complexity of the Chat Agent connection process | result     |
-|      | 1-2 Long waiting time for agent connection  | result     |
-|      | 1-3 Mismatch in estimated wait time         | result     |
-|      | 1-4 Unexpected Disconnection during chat    | result     |
-|  2. Agent knowledge and expertise |                |     total count of category 2 |
-| | 2-1 Lack of product knowledge or incorrect guidance | result     |
-|         | 2-2 Low problem solving ability             | result     |
-| 3.Agent response attitude  |                      |  total count of category 3    |
-|     | 3-1 Agent Unkindness                        | result     |
-|        | 3-2 Communication issues with agent         | result     |
-| 4.Solution/result of the problem   |               |    total count of category 4  |
-|    | 4-1 Problem not solved                      | result     |
-|    | 4-2 Transferred without solution            | result     |
-| 5.Time taken to resolve issues   |                 |   total count of category 5   |
-|         | 5-1 Long time taken to resolve the issue    | result     |
-|   6. Convenience of using chat support |            |   total count of category 6   |
-|      | 6-1 Low Accessibility/convenience of chat   | result     |
-|  | 6-2 Slow response by the Agent              | result     |
-
-설명: 1.~~ 로 되어있는 행은 메인 카테고리로 분류의 대상이 아니다. 이 아래 서브카테고리로만 분류한다. 
-    메인 카테고리 오른쪽의 카운트는 서브카테고리의 총 합이다.
-    모든 피드백은 서브카테고리 중 하나로 반드시 분류되어야한다.
+    # 출력
+    - NPS 데이터 요약 결과, 아주 간단한 분석 결과도 포함한다.
+    - 마크다운 문법으로 줄 글 형태로 제공한다.
+    - 요약/분석 결과를 제외하고 다른 출력은 포함하지 않는다.
+    - NPS 데이터가 한국어로 구성된 경우 한국어로 출력한다.
+    - 데이터가 한국어 이외의 언어로 전달된 경우 영어로 출력한다.
+    
+    
     """
     }
 
@@ -95,85 +68,12 @@ def Classification_Chat(a):
     # 응답 반환
     return response.json()["content"]
 
-def Classification(a):
-    body = {
-    "modelIds": [YOUR_MODEL_ID],
-    "contents": ["""
-
-                너에게는 고객의 피드백 데이터가 주어질 꺼야. 
-                나는 이런 고객 피드백들을 분류하고 싶어.
-                분류는 대카테고리 속에 서브카테고리가 있는데 이 중 하나의 서브카테고리로 분류하는 게 목적이야.
-                정확히 일치하는 서브카테고리가 없더라도 가장 유사한 서브카테고리로 분류하면 돼.
-                단 절대로 누락되는 항목이 있어선 안돼. 즉 100개의 피드백이 전달되면 100개모두 어딘가로는 분류가 되어야하고,
-                분류 항목은 서브카테고리라는 거야.
-                메인카테고리로는 분류하는게 아니야. 서브카테고리로만 분류하는 것임에 주의해.
-                피드백이 한국어로 되어있는 경우 카테고리 명도 한국어로 작성해줘.
-                출력결과가 안나오는 일은 있어서는 안된다. 
-                반드시 분류 결과표를 돌려줘야한다.
-                 -------------------------------데이터-------------------------
-                 """ + a],
-    "llmConfig": {
-        "max_new_tokens": 4096,
-        "seed": None,
-        "top_k": 14,
-        "top_p": 0.94,
-        "temperature": 0.01,
-        "repetition_penalty": 1.04
-    },
-    "isStream": False,
-    "systemPrompt":"""
-    
-# 출력 형태
-- 반드시 아래의 출력 형태로 출력되야한다. 
-- 분류 결과 외 다른 출력은 없어야한다.
-- ```markdown과 같은 표시는 없어야한다.
-- 전달된 n개의 피드백은 Subcategory 중 어딘가로는 분류되어야한다. (누락항목이 있으면 안된다.)
-- 하나의 카테고리로 몰려서 분류되는 것, 누락되는 것은 절대 허용되지 않는다.
-- 해당 3개의 열 가장 우측에, 각 서브 카테고리 샘플 열을 추가하여 샘플 피드백을 넣어라
-- 리뷰가 한국어인 경우에는 카테고리 네임도 한국어로 번역해서 출력한다.
-| Category Type       | Category Name                                | Count | 
-|---------------------|---------------------------------------------|-------|
-| 1.Agent connection process  |                     |   total count of category 1    |
-|         | 1-1 Complexity of the Call Agent connection process | result     |
-|         | 1-2 Long waiting time for Call agent connection | result     |
-|         | 1-3 Mismatch in estimated wait time         | result     |
-| 2.Agent response attitude   | Agent knowledge and expertise          |     total count of category 2 |
-|         | 2-1 Lack of product knowledge or incorrect guidance | result     |
-|         | 2-2 Low problem-solving ability             | result     |
-| 3.Agent response attitude   |                      |   total count of category 3   |
-|         | 3-1 Agent Unkindness                        | result     |
-|         | 3-2 Communication issues with agent         | result     |
-| 4.Solution/result of the problem   |               |  total count of category 4    |
-|         | 4-1 Problem not solved                      | result     |
-|         | 4-2 Transferred without solution            | result    |
-| 5.Time taken to resolve issues   |                 |  total count of category 5    |
-|         | 5-1 Long time taken to resolve the issue    | result     |
-
-
-
-설명: 1.~~ 로 되어있는 행은 메인 카테고리로 분류의 대상이 아니다. 이 아래 서브카테고리로만 분류한다. 
-    메인 카테고리 오른쪽의 카운트는 서브카테고리의 총 합이다.
-    모든 피드백은 서브카테고리 중 하나로 반드시 분류되어야한다.
-    """
-    }
-
-    api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/messages"
-
-    response=requests.post(
-        api_endpoint_url,
-        headers=headers,
-        json=body
-    )
-    print(response)
-
-    # 응답 반환
-    return response.json()["content"]
 
 def sm_global(a):
     body = {
     "modelIds": [YOUR_MODEL_ID],
     "contents": ["""
-                너에게는 NPS 정보가 주어질 꺼야. 이건 법인별로 측정된 법인의 상담 만족도 점수야.
+                너에게는 NPS 정보가 주어질거야. 이건 법인별로 측정된 법인의 수리(Repair) 만족도 점수야.
                 너는 이 데이터를 보고 분석한 후 분석 결과를 작성해야해.
                 명심해 분석은 영어로 출력해, 리뷰 자체는 원어로 인용해.
                 리뷰가 한국어인 경우 한국어로 요약해.
@@ -216,55 +116,7 @@ def sm_global(a):
 
     # 응답 반환
     return response.json()["content"]
-    
-def nps_sum(text):    
-    body = {
-    "modelIds": [YOUR_MODEL_ID],
-    "contents": ["""
-                 다음은 NPS (Net promoter score) 점수에 관한 데이터이다.
-                 
-                 즉 고객에게 진행된 전화/채팅 상담에 대한 만족도 점수로,
-                 
-                 다음의 데이터를 요약해서 알기 쉽게 정리해라.
-                 
-                 리뷰가 한국어인 경우에는 모든 출력은 한국어로, 한국어가 아닌 경우에는 리뷰 인용은 원어로, 나머지는 출력은 영어로작성해라.
-                 -------------------------------데이터-------------------------
-                 """ + text],
-    "llmConfig": {
-        "max_new_tokens": 4096,
-        "seed": None,
-        "top_k": 14,
-        "top_p": 0.94,
-        "temperature": 0.01,
-        "repetition_penalty": 1.04
-    },
-    "isStream": False,
-    "systemPrompt":"""
-    # 입력
-    - NPS (Net Promoter Score) 데이터
-    
-    # 출력
-    - NPS 데이터 요약 결과, 아주 간단한 분석 결과도 포함한다.
-    - 마크다운 문법으로 줄 글 형태로 제공한다.
-    - 요약/분석 결과를 제외하고 다른 출력은 포함하지 않는다.
-    - NPS 데이터가 한국어로 구성된 경우 한국어로 출력한다.
-    - 데이터가 한국어 이외의 언어로 전달된 경우 영어로 출력한다.
-    
-    
-    """
-    }
 
-    api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/messages"
-
-    response=requests.post(
-        api_endpoint_url,
-        headers=headers,
-        json=body
-    )
-    print(response)
-
-    # 응답 반환
-    return response.json()["content"]
     
 def sm_local(a):
     body = {
@@ -290,9 +142,9 @@ def sm_local(a):
     "systemPrompt":"""
 # 역할
 - 당신은 NPS (net promoter score) 점수 및 고객 피드백 분석 전문가이다.
-- 당신에게는 제품 문의를 위해 전화 상담 혹은 채팅 상담을 마친 고객이 남긴 피드백 점수와 리뷰가 전달된다.
+- 당신에게는 제품에 이상이 있어 수리를 마친 고객이 남긴 피드백 점수와 리뷰가 전달된다.
 - 추가로 통계 및 분석 결과도 전달된다.
-- 해당 점수는 하나의 법인에서 진행한 상담에 대한 점수이다.
+- 해당 점수는 하나의 법인에서 진행한 수리에 대한 점수이다.
 - 전달된 정보를 바탕으로 NPS 점수가 떨어진 이유와 개선점에 대해 작성하면 된다.
 - 단 개선점을 작성할 때는 가이드라인에 맞춰 작성하되, 고객 피드백과 상황을 참고하여 구체적이고 세부적인 피드백을 남겨라.
 - 출력으로는 피드백만 제공해야한다. 그 외의 다른 출력은 있으면 안된다.
@@ -309,40 +161,6 @@ def sm_local(a):
 ## 결론 (언어조건 중요)
 }
 
-# 콜 NPS 피드백 가이드라인
-다음은 NPS 조사 카테고리별 점수 개선 방안이다. 해당 사항을 참고해서 피드백을 작성하되, 현실적인 개선안을 포함해라.
-단 이 개선방안은 참고내용에 가까우니 이 내용을 참고하여 실제 법인에 도움이 되는 내용을 작성해라. 작성은 고객의 실제 코맨트에 대한 해결책이어야한다.
-
-| Main Category                   | Sub Category                                  | Improvement Plan                                                                                                                                                                                                 |
-|----------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Agent connection process        | 1-1 Complexity of the Call Agent connection process | 1. Simplify IVR menu structure: Streamline main service categories and prioritize frequently inquired items.<br>2. Introduce voice recognition technology: Utilize NLP to connect customers to agents via voice commands. |
-|                                 | 1-2 Long waiting time for Call agent connection | 1. Multi-channel support: Offer chat, email, etc., and add deflection options in IVR.<br>2. Optimize agent allocation: Monitor ASA during peak hours and review outbound call center conversion.<br>3. Check AHT: Verify if increased AHT affects wait times.<br>4. Provide callback service: Guide customers to opt for callback every 5 minutes. |
-|                                 | 1-3 Mismatch in estimated wait time          | 1. Verify FIFO logic: Ensure no priority changes due to transfers or alternative entry points.<br>2. Minimize re-transfer: Strengthen initial agent matching based on product/symptom input. |
-| Agent knowledge and expertise   | 2-1 Lack of product knowledge or incorrect guidance | 1. Monitor ASK usage: Ensure uniform adoption among agents.<br>2. Enhance ASK content: Collaborate with divisions to improve search functionality and fill content gaps. |
-|                                 | 2-2 Low problem-solving ability              | 1. AI simulation training: Improve response skills for less experienced agents.<br>2. Share best practices: Disseminate BP cases from top performers.<br>3. Transfer to expert agents: Escalate complex cases promptly. |
-| Agent response attitude         | 3-1 Agent Unkindness                         | 1. Evaluate and reward kindness: Set clear standards, conduct regular assessments, and offer incentives.<br>2. Share exemplary cases: Highlight top performers’ BP cases.<br>3. Stress management: Provide breaks, workshops, and team meetings. |
-|                                 | 3-2 Communication issues with agent          | 1. Communication skill programs: Train on clarity, active listening, and non-verbal cues.<br>2. Technical support: Use real-time translation tools and RM/Visual Support for remote assistance. |
-| Solution/result of the problem  | 4-1 Problem not solved                       | 1. Encourage customer participation: Involve customers in troubleshooting.<br>2. Improve ASK usability: Enhance content and search functionality. |
-|                                 | 4-2 Transferred without solution             | 1. Minimize re-transfer: Strengthen initial agent matching.<br>2. Transfer to expert agents: Escalate complex cases. |
-| Time taken to resolve issues    | 5-1 Long time taken to resolve the issue     | 1. Optimize AHT and IVR: Analyze handling time segments and streamline customer data collection.<br>2. Improve ASK usability: Enhance content and search functionality. |
-        
-# 챗 NPS 피드백 가이드라인
-| Main Category                     | Sub Category                                  | Improvement Plan                                                                                                                                                                                                 |
-|----------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Chat consultation connection process** | 1-1 Complexity of the Chat Agent connection process | 1. **Enhance chatbot functionality**: <br>   - Provide answers to frequently asked questions to reduce the need for agent connection<br>   - Recommend similar Q&A if issues remain unresolved<br>2. **Improve chatbot accessibility**: <br>   - Ensure chatbot and chat consultation guidance are prominently placed on the website<br>   - Verify GNB and widget activation<br>   - Optimize search results to display relevant links |
-|                                  | 1-2 Long waiting time for agent connection    | 1. **Redirect customer journey**: Guide customers to self-resolve via chatbot links<br>2. **Optimize agent allocation**: <br>   - Monitor Average Speed of Answer (ASA) during peak hours<br>   - Limit simultaneous chats to 3 per agent<br>3. **Check average resolution time**: Analyze if increased handling time affects wait times |
-|                                  | 1-3 Mismatch in estimated wait time           | 1. **Verify FIFO logic**: Ensure no priority changes due to transfers or alternative entry points<br>2. **Minimize re-transfers**: Match agents to customer issues/products during initial connection                                                                 |
-|                                  | 1-4 Unexpected Disconnection during chat      | 1. **Extend session duration**: Allow sufficient time for customers to return and review responses<br>2. **Quick response**: Limit simultaneous chats to 3 per agent and ensure prompt replies                                                                       |
-| **Agent knowledge and expertise** | 2-1 Lack of product knowledge or incorrect guidance | 1. **Monitor ASK usage**: Ensure uniform adoption among agents<br>2. **Enhance ASK content**: Improve search functionality and fill content gaps                                                                     |
-|                                  | 2-2 Low problem solving ability               | 1. **AI simulation training**: Improve response skills for less experienced agents<br>2. **Share best practices**: Disseminate BP cases from top performers<br>3. **Escalate to expert agents**: Handle complex cases promptly |
-| **Agent response attitude**      | 3-1 Agent Unkindness                          | 1. **Evaluate and reward kindness**: Set clear standards, conduct regular assessments, and offer incentives<br>2. **Share exemplary cases**: Highlight top performers’ BP cases<br>3. **Stress management**: Provide breaks, workshops, and team meetings |
-|                                  | 3-2 Communication issues with agent           | 1. **Communication skill programs**: Train on clarity, active listening, and non-verbal cues<br>2. **Leverage technical support**: Use real-time translation tools and RM/Visual Support for remote assistance |
-| **Solution/result of the problem** | 4-1 Problem not solved                        | 1. **Encourage customer participation**: Involve customers in troubleshooting<br>2. **Improve ASK usability**: Enhance content and search functionality                                                                 |
-|                                  | 4-2 Transferred without solution              | 1. **Minimize re-transfers**: Strengthen initial agent matching<br>2. **Escalate to expert agents**: Handle complex cases promptly                                                                              |
-| **Time taken to resolve issues** | 5-1 Long time taken to resolve the issue      | 1. **Check AHT and optimize IVR**: Analyze handling time segments and streamline customer data collection<br>2. **Improve ASK usability**: Enhance content and search functionality                              |
-| **Convenience of using chat support** | 6-1 Low Accessibility/convenience of chat     | 1. **Improve accessibility**: Ensure chatbot and chat consultation guidance are prominently placed on the website<br>   - Verify GNB and widget activation<br>   - Optimize search results<br>   - Display 24/7 operating hours |
-|                                  | 6-2 Slow response by the Agent                | 1. **Optimize response time**: Limit simultaneous chats to 3 per agent<br>2. **Prevent customer drop-off**: Manage risks of customers switching to other channels due to delays                                                                 |
-
     """
     }
 
@@ -357,4 +175,251 @@ def sm_local(a):
     # 응답 반환
     print(response)
     return response.json()["content"]    
+
+
+# def Classification_Chat(a):
+#     body = {
+#     "modelIds": [YOUR_MODEL_ID],
+#     "contents": ["""
+                 
+#                 너에게는 고객의 피드백 데이터가 주어질거야. 
+#                 나는 이런 고객 피드백들을 분류하고 싶어.
+#                 분류는 대카테고리 속에 서브카테고리가 있는데 이 중 하나의 서브카테고리로 분류하는 게 목적이야.
+#                 정확히 일치하는 서브카테고리가 없더라도 가장 유사한 서브카테고리로 분류하면 돼.
+#                 단 절대로 누락되는 항목이 있어선 안돼. 즉 100개의 피드백이 전달되면 100개모두 어딘가로는 분류가 되어야하고,
+#                 분류 항목은 서브카테고리라는 거야.
+#                 메인카테고리로는 분류하는게 아니야. 서브카테고리로만 분류하는 것임에 주의해.
+#                 피드백이 한국어로 되어있는 경우 카테고리 명도 한국어로 작성해줘                
+#                 출력결과가 안나오는 일은 있어서는 안된다. 
+#                 반드시 분류 결과표를 돌려줘야한다.
+
+#                  -------------------------------데이터-------------------------
+#                  """ + a],
+#     "llmConfig": {
+#         "max_new_tokens": 4096,
+#         "seed": None,
+#         "top_k": 14,
+#         "top_p": 0.94,
+#         "temperature": 0.01,
+#         "repetition_penalty": 1.04
+#     },
+#     "isStream": False,
+#     "systemPrompt":"""
+    
+# # 출력 형태
+# - 반드시 아래의 출력 형태로 출력되야한다. 
+# - 분류 결과 외 다른 출력은 없어야한다.
+# - ```markdown과 같은 표시는 없어야한다.
+# - 전달된 n개의 피드백은 Subcategory 중 어딘가로는 분류되어야한다. (누락항목이 있으면 안된다.)
+# - 하나의 카테고리로 몰려서 분류되는 것, 누락되는 것은 절대 허용되지 않는다.
+# - 해당 3개의 열 가장 우측에, 각 서브 카테고리 샘플 열을 추가하여 샘플 피드백을 넣어라
+# - 리뷰가 한국어인 경우에는 카테고리 네임도 한국어로 번역해서 출력한다.
+#  Type       | Category Name                                | Count | | Sample Feedback |
+# |---------------------|---------------------------------------------|-------|
+# |  1. Chat consultation connection process  |         |      |total count of category 1
+# |      | 1-1 Complexity of the Chat Agent connection process | result     |
+# |      | 1-2 Long waiting time for agent connection  | result     |
+# |      | 1-3 Mismatch in estimated wait time         | result     |
+# |      | 1-4 Unexpected Disconnection during chat    | result     |
+# |  2. Agent knowledge and expertise |                |     total count of category 2 |
+# | | 2-1 Lack of product knowledge or incorrect guidance | result     |
+# |         | 2-2 Low problem solving ability             | result     |
+# | 3.Agent response attitude  |                      |  total count of category 3    |
+# |     | 3-1 Agent Unkindness                        | result     |
+# |        | 3-2 Communication issues with agent         | result     |
+# | 4.Solution/result of the problem   |               |    total count of category 4  |
+# |    | 4-1 Problem not solved                      | result     |
+# |    | 4-2 Transferred without solution            | result     |
+# | 5.Time taken to resolve issues   |                 |   total count of category 5   |
+# |         | 5-1 Long time taken to resolve the issue    | result     |
+# |   6. Convenience of using chat support |            |   total count of category 6   |
+# |      | 6-1 Low Accessibility/convenience of chat   | result     |
+# |  | 6-2 Slow response by the Agent              | result     |
+
+# 설명: 1.~~ 로 되어있는 행은 메인 카테고리로 분류의 대상이 아니다. 이 아래 서브카테고리로만 분류한다. 
+#     메인 카테고리 오른쪽의 카운트는 서브카테고리의 총 합이다.
+#     모든 피드백은 서브카테고리 중 하나로 반드시 분류되어야한다.
+#     """
+#     }
+
+#     api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/messages"
+
+#     response=requests.post(
+#         api_endpoint_url,
+#         headers=headers,
+#         json=body
+#     )
+#     print(response)
+
+#     # 응답 반환
+#     return response.json()["content"]
+
+# def Classification(a):
+#     body = {
+#     "modelIds": [YOUR_MODEL_ID],
+#     "contents": ["""
+
+#                 너에게는 고객의 피드백 데이터가 주어질 꺼야. 
+#                 나는 이런 고객 피드백들을 분류하고 싶어.
+#                 분류는 대카테고리 속에 서브카테고리가 있는데 이 중 하나의 서브카테고리로 분류하는 게 목적이야.
+#                 정확히 일치하는 서브카테고리가 없더라도 가장 유사한 서브카테고리로 분류하면 돼.
+#                 단 절대로 누락되는 항목이 있어선 안돼. 즉 100개의 피드백이 전달되면 100개모두 어딘가로는 분류가 되어야하고,
+#                 분류 항목은 서브카테고리라는 거야.
+#                 메인카테고리로는 분류하는게 아니야. 서브카테고리로만 분류하는 것임에 주의해.
+#                 피드백이 한국어로 되어있는 경우 카테고리 명도 한국어로 작성해줘.
+#                 출력결과가 안나오는 일은 있어서는 안된다. 
+#                 반드시 분류 결과표를 돌려줘야한다.
+#                  -------------------------------데이터-------------------------
+#                  """ + a],
+#     "llmConfig": {
+#         "max_new_tokens": 4096,
+#         "seed": None,
+#         "top_k": 14,
+#         "top_p": 0.94,
+#         "temperature": 0.01,
+#         "repetition_penalty": 1.04
+#     },
+#     "isStream": False,
+#     "systemPrompt":"""
+    
+# # 출력 형태
+# - 반드시 아래의 출력 형태로 출력되야한다. 
+# - 분류 결과 외 다른 출력은 없어야한다.
+# - ```markdown과 같은 표시는 없어야한다.
+# - 전달된 n개의 피드백은 Subcategory 중 어딘가로는 분류되어야한다. (누락항목이 있으면 안된다.)
+# - 하나의 카테고리로 몰려서 분류되는 것, 누락되는 것은 절대 허용되지 않는다.
+# - 해당 3개의 열 가장 우측에, 각 서브 카테고리 샘플 열을 추가하여 샘플 피드백을 넣어라
+# - 리뷰가 한국어인 경우에는 카테고리 네임도 한국어로 번역해서 출력한다.
+# | Category Type       | Category Name                                | Count | 
+# |---------------------|---------------------------------------------|-------|
+# | 1.Agent connection process  |                     |   total count of category 1    |
+# |         | 1-1 Complexity of the Call Agent connection process | result     |
+# |         | 1-2 Long waiting time for Call agent connection | result     |
+# |         | 1-3 Mismatch in estimated wait time         | result     |
+# | 2.Agent response attitude   | Agent knowledge and expertise          |     total count of category 2 |
+# |         | 2-1 Lack of product knowledge or incorrect guidance | result     |
+# |         | 2-2 Low problem-solving ability             | result     |
+# | 3.Agent response attitude   |                      |   total count of category 3   |
+# |         | 3-1 Agent Unkindness                        | result     |
+# |         | 3-2 Communication issues with agent         | result     |
+# | 4.Solution/result of the problem   |               |  total count of category 4    |
+# |         | 4-1 Problem not solved                      | result     |
+# |         | 4-2 Transferred without solution            | result    |
+# | 5.Time taken to resolve issues   |                 |  total count of category 5    |
+# |         | 5-1 Long time taken to resolve the issue    | result     |
+
+
+
+# 설명: 1.~~ 로 되어있는 행은 메인 카테고리로 분류의 대상이 아니다. 이 아래 서브카테고리로만 분류한다. 
+#     메인 카테고리 오른쪽의 카운트는 서브카테고리의 총 합이다.
+#     모든 피드백은 서브카테고리 중 하나로 반드시 분류되어야한다.
+#     """
+#     }
+
+#     api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/messages"
+
+#     response=requests.post(
+#         api_endpoint_url,
+#         headers=headers,
+#         json=body
+#     )
+#     print(response)
+
+#     # 응답 반환
+#     return response.json()["content"]
+
+
+
+
+# def sm_local(a):
+#     body = {
+#     "modelIds": [YOUR_MODEL_ID],
+#     "contents": ["""
+                 
+# 다음 정보를 보고 NPS 분석 및 피드백 제공해줘.     
+# - 출력 언어는 고객 피드백을 인용하는 부분은 피드백 원어를, 나머지 부분은 카테고리,헤더를 명시하는 부분을 포함해서 영어로 작성해라.
+# - 단 NPS에 대한 고객 피드백이 한국어로 구성된 경우 모든 항목을 한국어로 작성해라.
+# - 여기서 영어,한국어로 작성한다는 것은 마크다운 헤더의 타이틀을 포함하는 것이다.             
+# - 언어 조건을 철저히 명심해라
+#                  -------------------------------데이터-------------------------
+#                  """ + a],
+#     "llmConfig": {
+#         "max_new_tokens": 4096,
+#         "seed": None,
+#         "top_k": 14,
+#         "top_p": 0.94,
+#         "temperature": 0.01,
+#         "repetition_penalty": 1.04
+#     },
+#     "isStream": False,
+#     "systemPrompt":"""
+# # 역할
+# - 당신은 NPS (net promoter score) 점수 및 고객 피드백 분석 전문가이다.
+# - 당신에게는 제품 문의를 위해 전화 상담 혹은 채팅 상담을 마친 고객이 남긴 피드백 점수와 리뷰가 전달된다.
+# - 추가로 통계 및 분석 결과도 전달된다.
+# - 해당 점수는 하나의 법인에서 진행한 상담에 대한 점수이다.
+# - 전달된 정보를 바탕으로 NPS 점수가 떨어진 이유와 개선점에 대해 작성하면 된다.
+# - 단 개선점을 작성할 때는 가이드라인에 맞춰 작성하되, 고객 피드백과 상황을 참고하여 구체적이고 세부적인 피드백을 남겨라.
+# - 출력으로는 피드백만 제공해야한다. 그 외의 다른 출력은 있으면 안된다.
+# - 출력 언어는 고객 피드백을 인용하는 부분은 피드백 원어를, 나머지 부분은 카테고리를 명시하는 부분을 포함해서 영어로 작성해라.
+# - 단 NPS에 대한 고객 피드백이 한국어로 구성된 경우 모든 항목을 한국어로 작성해라.
+# - 여기서 영어,한국어로 작성한다는 것은 마크다운 헤더의 타이틀을 포함하는 것이다.
+# # 출력 조건
+# - 피드백과 분석 결과에 대해서만 제공해야한다.
+# - 마크다운 문법을 활용하여 포맷팅을 진행해서 제공해라.
+# - 다음의 형태로 출력해라 (단 제목,헤더들도 언어 조건에 따라야한다.) 괄호는 출력하지마라
+# {
+# ## 분석 결과 (언어조건 중요)
+# ## 하락 카테고리 및 개선 방안 (언어조건 중요)
+# ## 결론 (언어조건 중요)
+# }
+
+# # 콜 NPS 피드백 가이드라인
+# 다음은 NPS 조사 카테고리별 점수 개선 방안이다. 해당 사항을 참고해서 피드백을 작성하되, 현실적인 개선안을 포함해라.
+# 단 이 개선방안은 참고내용에 가까우니 이 내용을 참고하여 실제 법인에 도움이 되는 내용을 작성해라. 작성은 고객의 실제 코맨트에 대한 해결책이어야한다.
+
+# | Main Category                   | Sub Category                                  | Improvement Plan                                                                                                                                                                                                 |
+# |----------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+# | Agent connection process        | 1-1 Complexity of the Call Agent connection process | 1. Simplify IVR menu structure: Streamline main service categories and prioritize frequently inquired items.<br>2. Introduce voice recognition technology: Utilize NLP to connect customers to agents via voice commands. |
+# |                                 | 1-2 Long waiting time for Call agent connection | 1. Multi-channel support: Offer chat, email, etc., and add deflection options in IVR.<br>2. Optimize agent allocation: Monitor ASA during peak hours and review outbound call center conversion.<br>3. Check AHT: Verify if increased AHT affects wait times.<br>4. Provide callback service: Guide customers to opt for callback every 5 minutes. |
+# |                                 | 1-3 Mismatch in estimated wait time          | 1. Verify FIFO logic: Ensure no priority changes due to transfers or alternative entry points.<br>2. Minimize re-transfer: Strengthen initial agent matching based on product/symptom input. |
+# | Agent knowledge and expertise   | 2-1 Lack of product knowledge or incorrect guidance | 1. Monitor ASK usage: Ensure uniform adoption among agents.<br>2. Enhance ASK content: Collaborate with divisions to improve search functionality and fill content gaps. |
+# |                                 | 2-2 Low problem-solving ability              | 1. AI simulation training: Improve response skills for less experienced agents.<br>2. Share best practices: Disseminate BP cases from top performers.<br>3. Transfer to expert agents: Escalate complex cases promptly. |
+# | Agent response attitude         | 3-1 Agent Unkindness                         | 1. Evaluate and reward kindness: Set clear standards, conduct regular assessments, and offer incentives.<br>2. Share exemplary cases: Highlight top performers’ BP cases.<br>3. Stress management: Provide breaks, workshops, and team meetings. |
+# |                                 | 3-2 Communication issues with agent          | 1. Communication skill programs: Train on clarity, active listening, and non-verbal cues.<br>2. Technical support: Use real-time translation tools and RM/Visual Support for remote assistance. |
+# | Solution/result of the problem  | 4-1 Problem not solved                       | 1. Encourage customer participation: Involve customers in troubleshooting.<br>2. Improve ASK usability: Enhance content and search functionality. |
+# |                                 | 4-2 Transferred without solution             | 1. Minimize re-transfer: Strengthen initial agent matching.<br>2. Transfer to expert agents: Escalate complex cases. |
+# | Time taken to resolve issues    | 5-1 Long time taken to resolve the issue     | 1. Optimize AHT and IVR: Analyze handling time segments and streamline customer data collection.<br>2. Improve ASK usability: Enhance content and search functionality. |
+        
+# # 챗 NPS 피드백 가이드라인
+# | Main Category                     | Sub Category                                  | Improvement Plan                                                                                                                                                                                                 |
+# |----------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+# | **Chat consultation connection process** | 1-1 Complexity of the Chat Agent connection process | 1. **Enhance chatbot functionality**: <br>   - Provide answers to frequently asked questions to reduce the need for agent connection<br>   - Recommend similar Q&A if issues remain unresolved<br>2. **Improve chatbot accessibility**: <br>   - Ensure chatbot and chat consultation guidance are prominently placed on the website<br>   - Verify GNB and widget activation<br>   - Optimize search results to display relevant links |
+# |                                  | 1-2 Long waiting time for agent connection    | 1. **Redirect customer journey**: Guide customers to self-resolve via chatbot links<br>2. **Optimize agent allocation**: <br>   - Monitor Average Speed of Answer (ASA) during peak hours<br>   - Limit simultaneous chats to 3 per agent<br>3. **Check average resolution time**: Analyze if increased handling time affects wait times |
+# |                                  | 1-3 Mismatch in estimated wait time           | 1. **Verify FIFO logic**: Ensure no priority changes due to transfers or alternative entry points<br>2. **Minimize re-transfers**: Match agents to customer issues/products during initial connection                                                                 |
+# |                                  | 1-4 Unexpected Disconnection during chat      | 1. **Extend session duration**: Allow sufficient time for customers to return and review responses<br>2. **Quick response**: Limit simultaneous chats to 3 per agent and ensure prompt replies                                                                       |
+# | **Agent knowledge and expertise** | 2-1 Lack of product knowledge or incorrect guidance | 1. **Monitor ASK usage**: Ensure uniform adoption among agents<br>2. **Enhance ASK content**: Improve search functionality and fill content gaps                                                                     |
+# |                                  | 2-2 Low problem solving ability               | 1. **AI simulation training**: Improve response skills for less experienced agents<br>2. **Share best practices**: Disseminate BP cases from top performers<br>3. **Escalate to expert agents**: Handle complex cases promptly |
+# | **Agent response attitude**      | 3-1 Agent Unkindness                          | 1. **Evaluate and reward kindness**: Set clear standards, conduct regular assessments, and offer incentives<br>2. **Share exemplary cases**: Highlight top performers’ BP cases<br>3. **Stress management**: Provide breaks, workshops, and team meetings |
+# |                                  | 3-2 Communication issues with agent           | 1. **Communication skill programs**: Train on clarity, active listening, and non-verbal cues<br>2. **Leverage technical support**: Use real-time translation tools and RM/Visual Support for remote assistance |
+# | **Solution/result of the problem** | 4-1 Problem not solved                        | 1. **Encourage customer participation**: Involve customers in troubleshooting<br>2. **Improve ASK usability**: Enhance content and search functionality                                                                 |
+# |                                  | 4-2 Transferred without solution              | 1. **Minimize re-transfers**: Strengthen initial agent matching<br>2. **Escalate to expert agents**: Handle complex cases promptly                                                                              |
+# | **Time taken to resolve issues** | 5-1 Long time taken to resolve the issue      | 1. **Check AHT and optimize IVR**: Analyze handling time segments and streamline customer data collection<br>2. **Improve ASK usability**: Enhance content and search functionality                              |
+# | **Convenience of using chat support** | 6-1 Low Accessibility/convenience of chat     | 1. **Improve accessibility**: Ensure chatbot and chat consultation guidance are prominently placed on the website<br>   - Verify GNB and widget activation<br>   - Optimize search results<br>   - Display 24/7 operating hours |
+# |                                  | 6-2 Slow response by the Agent                | 1. **Optimize response time**: Limit simultaneous chats to 3 per agent<br>2. **Prevent customer drop-off**: Manage risks of customers switching to other channels due to delays                                                                 |
+
+#     """
+#     }
+
+#     api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/messages"
+
+#     response=requests.post(
+#         api_endpoint_url,
+#         headers=headers,
+#         json=body
+#     )
+
+#     # 응답 반환
+#     print(response)
+#     return response.json()["content"]    
     
