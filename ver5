@@ -61,7 +61,8 @@ SUB_MD_DIR = os.path.join(OUT_DIR, "subsidiary_reports")
 
 # Thresholds
 LOW_SCORE_THRESHOLD = 70.0 # highlight if <= 70
-WEEK_FREQ = "W-TUE" # weeks end on Tuesday (Tue-based)
+# WEEK_FREQ = "W-TUE" # weeks end on Tuesday (Tue-based)
+WEEK_FREQ = "W-SAT" # weeks end on Saturday (Sat-based)
 
 # Max Excel sheet name length
 EXCEL_SHEETNAME_MAXLEN = 31
@@ -120,11 +121,13 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         cols = ["Empty"]
         return pd.DataFrame(columns=cols)
 
+    print(f"로드된 실제 컬럼명들: {df.columns.tolist()}")
+
     df.columns = [str(c).strip() for c in df.columns]
 
     colmap_candidates = {
         "Likelihood_to_Recommend": ["Likelihood_to_Recommend", "Likelihood to Recommend", "NPS", "Score", "추천점수", "추천 점수"],
-        "Response_Date__UTC_": ["Response_Date__UTC_","Response Date (UTC)", "Response_Date", "응답시간", "Date", "ResponseDate"],
+        "Response_Date__Local_": ["Response_Date__Local_","Response Date (UTC)", "Response_Date", "응답시간", "Date", "ResponseDate"],
         "RHQ": ["RHQ", "총괄", "RegionHQ"],
         "Subsidiary": ["Subsidiary", "법인", "Company"],
         "Division": ["Division", "제품군", "ProductLine"],
@@ -170,8 +173,8 @@ def create_new_division(df: pd.DataFrame) -> pd.DataFrame:
 
 def coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     df["Likelihood_to_Recommend"] = pd.to_numeric(df["Likelihood_to_Recommend"], errors="coerce")
-    df["Response_Date__UTC_"] = pd.to_datetime(df["Response_Date__UTC_"], errors="coerce", utc=True)
-    for c in ["RHQ","Subsidiary","Division2","Comment","Service_Type",
+    df["Response_Date__Local_"] = pd.to_datetime(df["Response_Date__Local_"], errors="coerce", utc=True)
+    for c in ["RHQ","Subsidiary","Division2","Comment","Serivce_Type",
               "Object_ID","CS_Repair_Issue_Resolution__Yes_No_","ImpactFactor"]:
         df[c] = df[c].astype(str).replace({"nan": np.nan})
         df[c] = df[c].apply(lambda x: x.strip() if isinstance(x, str) else x)
@@ -189,11 +192,11 @@ def to_naive_utc(ts: pd.Timestamp) -> pd.Timestamp:
     return ts
 
 def add_week_end(df: pd.DataFrame) -> pd.DataFrame:
-    if df["Response_Date__UTC_"].notna().any():
+    if df["Response_Date__Local_"].notna().any():
         try:
-            ts = df["Response_Date__UTC_"].dt.tz_convert("UTC").dt.tz_localize(None)
+            ts = df["Response_Date__Local_"].dt.tz_convert("UTC").dt.tz_localize(None)
         except Exception:
-            ts = df["Response_Date__UTC_"].dt.tz_localize(None)
+            ts = df["Response_Date__Local_"].dt.tz_localize(None)
         p = ts.dt.to_period(WEEK_FREQ)
         df["week_end"] = p.dt.to_timestamp(how="end").dt.normalize()
     else:
@@ -277,9 +280,9 @@ def compute_summary_table(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[pd.Times
 
     group_cols = ["RHQ","Subsidiary"]
     all_pivot = weekly_pivot(df, group_cols)
-    ci_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ci"], group_cols)
-    ps_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ps"], group_cols)
-    ih_pivot = weekly_pivot(df[df["Service_Type"].str.lower() == "ih"], group_cols)
+    ci_pivot = weekly_pivot(df[df["Serivce_Type"].str.lower() == "ci"], group_cols)
+    ps_pivot = weekly_pivot(df[df["Serivce_Type"].str.lower() == "ps"], group_cols)
+    ih_pivot = weekly_pivot(df[df["Serivce_Type"].str.lower() == "ih"], group_cols)
 
     def add_type(piv: pd.DataFrame, type_name: str) -> pd.DataFrame:
         piv = piv.copy()
@@ -335,9 +338,9 @@ def compute_summary_table(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[pd.Times
         return p
 
     all_div = div_last_pivot(df, "All")
-    ci_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ci"], "CI")
-    ps_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ps"], "PS")
-    ih_div = div_last_pivot(df[df["Service_Type"].str.lower() == "ih"], "IH")
+    ci_div = div_last_pivot(df[df["Serivce_Type"].str.lower() == "ci"], "CI")
+    ps_div = div_last_pivot(df[df["Serivce_Type"].str.lower() == "ps"], "PS")
+    ih_div = div_last_pivot(df[df["Serivce_Type"].str.lower() == "ih"], "IH")
 
     if not merged.empty:
         merged = merged.join(all_div[div_col_names], how="left")
@@ -368,11 +371,11 @@ def compute_summary_table(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[pd.Times
         if type_name == "All":
             sub = df
         elif type_name == "CI":
-            sub = df[df["Service_Type"].str.lower() == "ci"]
+            sub = df[df["Serivce_Type"].str.lower() == "ci"]
         elif type_name == "PS":
-            sub = df[df["Service_Type"].str.lower() == "ps"]
+            sub = df[df["Serivce_Type"].str.lower() == "ps"]
         else:
-            sub = df[df["Service_Type"].str.lower() == "ih"]
+            sub = df[df["Serivce_Type"].str.lower() == "ih"]
 
         w = sub.groupby("week_end")["Likelihood_to_Recommend"].apply(nps_from_scores).reindex(all_weeks)
         row = {"RHQ": "Global", "Subsidiary": "Global", "Type": type_name}
@@ -417,7 +420,7 @@ def compute_subdiv_sheet(df: pd.DataFrame, rhq: str, sub: str, div: str,
 
     def build_for_type(tp: str, factor_col: str) -> pd.DataFrame:
         part = base.copy()
-        part = part[part["Service_Type"].str.lower() == tp.lower()]
+        part = part[part["Serivce_Type"].str.lower() == tp.lower()]
         if part.empty:
             columns = ["RHQ","Subsidiary","Type","ImpactFactor","WoW_Change"] + week_col_names
             return pd.DataFrame(columns=columns)
@@ -550,7 +553,8 @@ def save_trend_plot(series: pd.Series, title: str, path: str):
         s = series.dropna().sort_index()
         plt.plot(s.index, s.values, marker='o')
         plt.title(title)
-        plt.xlabel("Week (end Tue)")
+        # plt.xlabel("Week (end Tue)")
+        plt.xlabel("Week (end Sat)")
         plt.ylabel("NPS")
         plt.grid(True, linestyle='--', linewidth=0.5)
         plt.tight_layout()
@@ -661,7 +665,7 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
     if not all_weeks:
         return
 
-    max_dt = df["Response_Date__UTC_"].dropna().max()
+    max_dt = df["Response_Date__Local_"].dropna().max()
     if pd.isna(max_dt):
         max_dt = pd.Timestamp.today().normalize()
     this_week = _pick_completed_week_end(all_weeks, max_dt)
@@ -699,7 +703,7 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
 
         # ---- Impact influence helper (이번주 기준) ----
         def impact_influence(tp: str, factor_col: str) -> pd.DataFrame:
-            part = sub_df[sub_df["Service_Type"].str.lower() == tp.lower()].copy()
+            part = sub_df[sub_df["Serivce_Type"].str.lower() == tp.lower()].copy()
             part = part[part["week_end"] == this_week]
             if part.empty:
                 return pd.DataFrame(columns=["ImpactFactor","NPS","Count","Influence"])
@@ -730,7 +734,7 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
         IH_imp = impact_influence("IH","ImpactFactor")
 
         # ---- 2) CI NPS 분석 결과 ----
-        ci_all = sub_df[sub_df["Service_Type"].str.lower() == "ci"].copy()
+        ci_all = sub_df[sub_df["Serivce_Type"].str.lower() == "ci"].copy()
         pos_ci = ci_all[ci_all["Likelihood_to_Recommend"] >= 9].copy()
         neg_ci = ci_all[ci_all["Likelihood_to_Recommend"] <= 6].copy()
 
@@ -742,7 +746,7 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
         neg_ci_summary = robust_api_call(nps_sum, " ".join(neg_ci_samples)) if neg_ci_samples else "요약"
 
         # ---- 3) PS NPS 분석 결과 ----
-        ps_all = sub_df[sub_df["Service_Type"].str.lower() == "ps"].copy()
+        ps_all = sub_df[sub_df["Serivce_Type"].str.lower() == "ps"].copy()
         pos_ps = ps_all[ps_all["Likelihood_to_Recommend"] >= 9].copy()
         neg_ps = ps_all[ps_all["Likelihood_to_Recommend"] <= 6].copy()
 
@@ -753,7 +757,7 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
         neg_ps_summary = robust_api_call(nps_sum, " ".join(neg_ps_samples)) if neg_ps_samples else "요약"
 
         # ---- 4) IH NPS 분석 결과 ----
-        ih_all = sub_df[sub_df["Service_Type"].str.lower() == "ih"].copy()
+        ih_all = sub_df[sub_df["Serivce_Type"].str.lower() == "ih"].copy()
         pos_ih = ih_all[ih_all["Likelihood_to_Recommend"] >= 9].copy()
         neg_ih = ih_all[ih_all["Likelihood_to_Recommend"] <= 6].copy()
 
@@ -861,8 +865,9 @@ def build_subsidiary_markdowns(df: pd.DataFrame, all_weeks: List[pd.Timestamp]) 
         
         with open(safe_path, "w", encoding="utf-8") as f:
             f.write(md)
-            
-        save_md_pdf(md,sub+"8.pdf")
+
+        # save_md_pdf(md,sub+"8.pdf")
+        save_md_pdf(md, f"{sub}_W{(datetime.now() + timedelta(days=1)).isocalendar()[1]}.pdf")
 
 
 def save_md_pdf(a: str, filename: str) -> str:
