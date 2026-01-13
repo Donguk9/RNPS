@@ -1,16 +1,31 @@
-   
+headers = {
+  "x-generative-ai-client": YOUR_CLIENT_KEY,
+  "x-openapi-token": YOUR_PASS_KEY,
+  "x-generative-ai-user-email": YOUR_EMAIL
+}
+
+import requests as requests
+models_api_endpoint_url = f"{ENDPOINT_URL}/openapi/chat/v1/models"
+
+
+def model_read():
+    response=requests.get(
+        models_api_endpoint_url,
+        headers=headers
+    )
+    print(response.json())
+
+    
 def nps_sum(text):    
     body = {
     "modelIds": [YOUR_MODEL_ID],
     "contents": ["""
                  The following data concerns Repair NPS (Net Promoter Score).
                  
-                 This represents satisfaction scores for repair services conducted due to product issues.
-                 
                  Summarize and organize the following data for easy understanding.
                  
-                 - If the review is in Korean, all output must be in Korean.
-                 - If the review is not in Korean, quote the review in its original language, and provide all other descriptions/analysis in English.
+                 - ALL OUTPUT MUST BE IN ENGLISH, regardless of the input language.
+                 - Provide a clear and concise summary.
                  -------------------------------DATA-------------------------
                  """ + text],
     "llmConfig": {
@@ -23,15 +38,14 @@ def nps_sum(text):
     },
     "isStream": False,
     "systemPrompt":"""
-    # Input
-    - NPS (Net Promoter Score) Data
+    # Role
+    - You are an expert data analyst.
     
-    # Output
-    - A summary of the NPS data, including a very brief analysis.
+    # Instructions
+    - Summarize the provided NPS data and include a very brief analysis.
+    - ALL output must be written in ENGLISH.
     - Provide the output in narrative form using Markdown syntax.
     - Do not include any text other than the summary/analysis results.
-    - If the NPS data is in Korean, output in Korean.
-    - If the data is provided in a language other than Korean, output in English.
     """
     }
 
@@ -42,10 +56,7 @@ def nps_sum(text):
         headers=headers,
         json=body
     )
-    print(response)
     return response.json()["content"]
-
-
 
 
 def sm_global(a):
@@ -55,10 +66,9 @@ def sm_global(a):
                 You will be provided with NPS information. This is the Repair satisfaction score measured by each subsidiary.
                 Analyze this data and write an analysis report.
                 
-                - The analysis output must be in English.
-                - Reviews themselves should be quoted in their original language.
-                - However, if the review is in Korean, summarize it in Korean.
-                - Do not include anything in the output except the analysis results.
+                - THE ENTIRE ANALYSIS MUST BE OUTPUT IN ENGLISH ONLY.
+                - Even if the input data or reviews are in Korean, the analysis and summary must be in English.
+                - Reviews can be quoted in their original language, but the surrounding explanation must be English.
                 
                  -------------------------------DATA-------------------------
                  """ + a],
@@ -72,15 +82,11 @@ def sm_global(a):
     },
     "isStream": False,
     "systemPrompt":"""
-    # Input
-    - NPS (Net Promoter Score) Data
-    
-    # Output
-    - A summary of the NPS data, including a very brief analysis.
-    - Provide the output in narrative form using Markdown syntax.
-    - Do not include any text other than the summary/analysis results.
-    - If the NPS data is in Korean, output in Korean.
-    - If the data is provided in a language other than Korean, output in English.
+    # Instructions
+    - Analyze the NPS data and provide a summary.
+    - ALL OUTPUT MUST BE IN ENGLISH. Do not provide Korean output under any circumstances.
+    - Format using Markdown.
+    - Do not include anything in the output except the analysis results.
     """
     }
 
@@ -91,23 +97,18 @@ def sm_global(a):
         headers=headers,
         json=body
     )
-    print(response)
     return response.json()["content"]
 
-
-
-
-
+    
 def sm_local(a):
     body = {
     "modelIds": [YOUR_MODEL_ID],
     "contents": ["""
                  
 Analyze the following NPS data and provide feedback.
-- For the output language: Quote customer feedback in its original language. Write everything else (including categories and headers) in English.
-- Exception: If the customer feedback is in Korean, write all items (including headers) in Korean.
-- Writing in English/Korean includes the titles of the Markdown headers.
-- Strictly adhere to these language conditions.
+- ALL OUTPUT (including headers, categories, and analysis) MUST BE IN ENGLISH.
+- DO NOT use Korean in the output, even if the input data is in Korean.
+- Quote customer feedback in its original language, but all other parts must be English.
                  -------------------------------DATA-------------------------
                  """ + a],
     "llmConfig": {
@@ -121,20 +122,17 @@ Analyze the following NPS data and provide feedback.
     "isStream": False,
     "systemPrompt":"""
 # Role
-- You are an expert in analyzing NPS (Net Promoter Score) and customer feedback.
-- You will receive feedback scores and reviews from customers who have completed repairs for product issues.
-- Statistical and analytical results will also be provided.
-- These scores represent the service quality of a specific subsidiary.
-- Based on the information, identify the reasons for the NPS decline and propose improvement plans.
-- When writing improvements, follow the guidelines but provide specific and detailed feedback based on actual customer comments and context.
-- Output only the feedback. No other introductory or concluding remarks.
-- Language Policy: Quote feedback in original language; all other parts (categories/headers) in English.
-- If the feedback is in Korean, all items must be in Korean.
+- You are an expert in NPS and customer feedback analysis.
+
+# Output Language Policy
+- EVERY PART of the response must be in ENGLISH.
+- This includes Markdown headers, category names, and feedback analysis.
+- DO NOT translate the output to Korean even if the input feedback is Korean.
 
 # Output Requirements
 - Provide only the feedback and analysis results.
 - Format the output using Markdown.
-- Use the following structure (Headers must follow the language policy):
+- Use the following structure:
 {
 ## Analysis Results
 ## Declined Categories and Improvement Plans
@@ -150,5 +148,4 @@ Analyze the following NPS data and provide feedback.
         headers=headers,
         json=body
     )
-    print(response)
-    return response.json()["content"]    
+    return response.json()["content"]
